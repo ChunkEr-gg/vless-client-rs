@@ -336,6 +336,19 @@ deleted. `STRIPPED.md` will list every test that was rewritten.
 | 5: app | Link parser and profile store unit tests | **Yes:** menu bar and window |
 | 6: hardening | | **Yes:** sleep and wake, Wi-Fi switch, idle CPU and RSS |
 
+**Baseline (unmodified shoes, `cargo +1.100.0 test --lib`, run in this
+sandbox):** 2723 passed, 19 failed, 13 ignored. Every failing test needs IPv6
+sockets, which this sandbox does not have (`EAFNOSUPPORT`, os error 97). Four
+of them cover code that is kept, and they will be run on a Mac:
+
+- `socks_handler::tests::wildcard_udp_replies_use_control_local_address_through_wrappers`
+- `tcp::tcp_server::lifetime_tests::tcp_preparation_defers_ipv4_mapped_listener_transitions`
+- `tun::udp_tests::raw_fd_ipv6_udp_roundtrips`
+- `tun::udp_tests::framed_raw_fd_ipv6_udp_roundtrips`
+
+The other 15 cover code that is being deleted: wireguard, ntp, rule_updater,
+splice, quic, tuic and dns/hosts.
+
 **This session has no Mac.** The cloud container is Linux and no computer of
 yours is attached. I can type-check the Mac-only crates here, but I can't run
 them. See question 1 below.
