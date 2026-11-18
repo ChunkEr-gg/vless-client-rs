@@ -110,7 +110,7 @@ stack.
 |---|---|---|
 | Linux desktop privileges | `src/desktop/**` (13 files: `nft.rs`, `routes.rs`, `resolved.rs`, `underlay.rs`, `journal.rs`, etc.) | Linux `nftables`, `rtnetlink`, and `systemd-resolved` automation. macOS root privilege isolation lives in the dedicated `helper/` crate (`vless-tray-helper`). |
 | Mobile C/JNI FFI | `src/ffi/**` (9 files: `android.rs`, `ios.rs`, `common.rs`, `stub.rs`, tests) | Android JNI (`jni`, `ndk-sys`, `android_logger`) and iOS C staticlib bindings. |
-| Linux TUN creation, offload & retained FDs | `src/tun/{platform,offload,retained}.rs` | `/dev/net/tun` creation via the `tun` crate, Linux VirtIO GSO/GRO offload ioctls, and FFI hot-reload fd retention. On macOS, `vless-tray-helper` opens `com.apple.net.utun_control` and passes the sole `utun` fd over `SCM_RIGHTS`. |
+| Linux `tun`-crate platform creation | `src/tun/platform.rs` | `/dev/net/tun` creation via the `tun` crate. On macOS, `vless-tray-helper` opens `com.apple.net.utun_control` and passes the sole `utun` fd over `SCM_RIGHTS` (`offload.rs` and `retained.rs` remain only for `smoltcp` unit tests). |
 | Built-in SNTP client | `src/ntp.rs`, `src/ntp/tests.rs`, NTP offset in `src/clock.rs` | macOS synchronizes system clocks via `timed`; REALITY authentication failures caused by clock skew surface a clear `REALITY_AUTH_OR_CLOCK_ERROR` diagnostic (`PLAN.md` §5.6). |
 | Unused buffers & Linux socket mark | `src/slide_buffer.rs`, `src/udp_fragments.rs`, `src/routing/udp_relay.rs`, `src/rustls_connection_util.rs`, `src/thread_util.rs`, `build.rs`, Linux `SO_MARK` in `src/socket_policy.rs` | Dead helpers left unreferenced once VMess, QUIC, UoT, TLS server inbound, YAML worker sizing, and Linux routing marks were removed. |
 
