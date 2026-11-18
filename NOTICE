@@ -1,0 +1,17 @@
+vless-tray (vless-client-rs)
+
+This project's engine (`engine/`) is derived from `shoes` by Alex Lau:
+- Upstream repository: https://github.com/cfal/shoes
+- Upstream commit: 7680938b96a245a21d9e481ad009205b956e4436
+- License: MIT (see `LICENSE`)
+
+Pinned upstream git forks inherited from `shoes`:
+- `rustls` (REALITY patches on rustls 0.23.46):
+  https://github.com/cfal/rustls @ f1a23c187330386e9e7f14a21dbae368034dc430
+  License: Apache-2.0 OR ISC OR MIT
+- `smoltcp` (TCP ACK sequence preservation during retransmission):
+  https://github.com/cfal/smoltcp @ 7ef43e497f575cb0340a43e4f414f0f0b8760bf6
+  License: 0BSD
+
+See `STRIPPED.md` for a detailed record of modules, dependencies, and tests
+removed or adapted from `cfal/shoes`.

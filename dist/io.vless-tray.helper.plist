@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>io.vless-tray.helper</string>
+
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>io.vless-tray.app</string>
+    </array>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Library/PrivilegedHelperTools/vless-tray-helper</string>
+    </array>
+
+    <!-- Socket activation: launchd binds /var/run/vless-tray.sock and spawns
+         vless-tray-helper only when vless-engine connects. The helper claims the
+         descriptor via launch_activate_socket("Listeners", ...). -->
+    <key>Sockets</key>
+    <dict>
+        <key>Listeners</key>
+        <dict>
+            <key>SockFamily</key>
+            <string>Unix</string>
+            <key>SockType</key>
+            <string>stream</string>
+            <key>SockPathName</key>
+            <string>/var/run/vless-tray.sock</string>
+            <!-- IMPORTANT: launchd XML plist <integer> values are base-10 decimal!
+                 Decimal 438 == octal 0666 (rw-rw-rw-). Do NOT write 0666 here, as
+                 CoreFoundation parses it as decimal 666 (octal 01232).
+                 Caller authorization is enforced in vless-tray-helper on every
+                 connection via getpeereid(2) checked against the root-owned file
+                 /Library/Application Support/vless-tray/owner-uid (mode 0600). -->
+            <key>SockPathMode</key>
+            <integer>438</integer>
+        </dict>
+    </dict>
+
+    <!-- Start once at boot/bootstrap so the helper restores and removes any
+         leftover /Library/Application Support/vless-tray/helper-state.json from
+         an unclean shutdown, then exits 0 immediately when idle. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Respawn if the helper crashes (non-zero exit or signal), but keep it
+         stopped after a clean exit(0) so nothing runs as root while idle. -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- Minimize launchd respawn throttle (default 10s -> 1s) so immediate
+         socket activation right after a 2s idle boot recovery exit is never
+         penalized by launchd's 10-second throttle delay. -->
+    <key>ThrottleInterval</key>
+    <integer>1</integer>
+
+    <key>ProcessType</key>
+    <string>Adaptive</string>
+
+    <key>AbandonProcessGroup</key>
+    <false/>
+</dict>
+</plist>
