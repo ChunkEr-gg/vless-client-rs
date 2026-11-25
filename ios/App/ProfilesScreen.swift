@@ -36,7 +36,7 @@ struct ProfilesScreen: View {
                     query.isEmpty || [$0.name, $0.endpoint, $0.security].joined(separator: " ").localizedCaseInsensitiveContains(query)
                 }) { item in
                     Button {
-                        proxy.selection = item.link
+                        proxy.select(item)
                     } label: {
                         HStack {
                             Image(systemName: "server.rack")

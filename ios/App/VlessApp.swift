@@ -14,7 +14,11 @@ struct VlessApp: App {
 @MainActor
 final class ProxyController: ObservableObject {
     @Published private(set) var profiles: [SavedProfile] = []
-    @Published var selection: String?
+    private struct Library: Codable {
+        var profiles: [SavedProfile]
+        var selection: String?
+    }
+    @Published private(set) var selection: String?
     @Published var notice: String?
     var active: SavedProfile? { profiles.first { $0.link == selection } ?? profiles.first }
     private static func storage() throws -> URL {
@@ -31,13 +35,28 @@ final class ProxyController: ObservableObject {
         do {
             let file = try Self.storage()
             if FileManager.default.fileExists(atPath: file.path) {
-                profiles = try JSONDecoder().decode([SavedProfile].self, from: Data(contentsOf: file))
+                let data = try Data(contentsOf: file)
+                let decoder = JSONDecoder()
+                if let library = try? decoder.decode(Library.self, from: data) {
+                    profiles = library.profiles
+                    selection = library.selection
+                } else {
+                    profiles = try decoder.decode([SavedProfile].self, from: data)
+                }
             }
         } catch { notice = "Could not load saved profiles." }
     }
-    private func save(_ next: [SavedProfile]) throws {
-        try JSONEncoder().encode(next).write(to: Self.storage(), options: [.atomic, .completeFileProtection])
+    private func save(_ next: [SavedProfile], selected: String?) throws {
+        let selectedLink = next.first { $0.link == selected }?.link ?? next.first?.link
+        let library = Library(profiles: next, selection: selectedLink)
+        try JSONEncoder().encode(library).write(to: Self.storage(), options: [.atomic, .completeFileProtection])
         profiles = next
+        selection = selectedLink
+    }
+    func select(_ entry: SavedProfile) {
+        guard !running && !busy && entry.link != selection else { return }
+        do { try save(profiles, selected: entry.link) }
+        catch { notice = "Could not save the selected profile." }
     }
     func add(_ value: String) -> Bool {
         guard !value.utf8.contains(0), let raw = value.withCString({ vless_profiles_import($0) }) else {
@@ -49,15 +68,14 @@ final class ProxyController: ObservableObject {
             var next = profiles
             for entry in incoming where !next.contains(where: { $0.link == entry.link }) { next.append(entry) }
             guard next.count <= 128 else { notice = "Save up to 128 profiles."; return false }
-            try save(next)
-            selection = incoming.first?.link
+            try save(next, selected: incoming.first?.link)
             notice = incoming.flatMap(\.warnings).first
             return true
         } catch { notice = "Could not save profiles."; return false }
     }
     func remove(_ entry: SavedProfile) {
         guard !running && !busy else { return }
-        do { try save(profiles.filter { $0.link != entry.link }) }
+        do { try save(profiles.filter { $0.link != entry.link }, selected: selection) }
         catch { notice = "Could not remove profile." }
     }
     @Published var running = false
