@@ -40,7 +40,7 @@ fn config(profile: &SavedProfile, host: &str, listen: SocketAddr, settings: &Set
     ];
     let mut rules = Vec::new();
     if settings.tun {
-        inbounds.push(json!({"type":"tun","tag":"system","interface_name":"rk-vless0","address":["172.29.255.1/30","fd73:726b::1/126"],"auto_route":true,"strict_route":true,"dns_mode":"hijack","stack":"system"}));
+        inbounds.push(json!({"type":"tun","tag":"system","address":["172.29.255.1/30","fd73:726b::1/126"],"auto_route":true,"strict_route":true,"dns_mode":"hijack","stack":"system"}));
         rules.push(json!({"inbound":"system","port":53,"action":"hijack-dns"}));
         if !settings.direct_domains.trim().is_empty() {
             rules.push(json!({"inbound":"system","action":"sniff"}));
