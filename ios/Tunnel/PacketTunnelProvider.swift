@@ -4,6 +4,7 @@ import NetworkExtension
 final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let queue = DispatchQueue(label: "io.vless.client.packet-flow")
     private var reader: DispatchSourceRead?
+    private var pendingStart: ((Error?) -> Void)?
     private var generation: UInt = 0
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
@@ -21,13 +22,23 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         ipv6.includedRoutes = [.default()]
         settings.ipv6Settings = ipv6
         settings.dnsSettings = NEDNSSettings(servers: ["1.1.1.1"])
-        setTunnelNetworkSettings(settings) { error in
-            self.queue.async {
-                if let error { completionHandler(error); return }
-                do {
-                    try self.attach(link)
-                    completionHandler(nil)
-                } catch { completionHandler(error) }
+        queue.async {
+            guard self.reader == nil, self.pendingStart == nil else {
+                completionHandler(POSIXError(.EBUSY))
+                return
+            }
+            self.pendingStart = completionHandler
+            let generation = self.generation
+            self.setTunnelNetworkSettings(settings) { error in
+                self.queue.async {
+                    guard self.generation == generation, let finish = self.pendingStart else { return }
+                    self.pendingStart = nil
+                    if let error { finish(error); return }
+                    do {
+                        try self.attach(link)
+                        finish(nil)
+                    } catch { finish(error) }
+                }
             }
         }
     }
@@ -80,9 +91,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         queue.async {
             self.generation &+= 1
+            let finishStart = self.pendingStart
+            self.pendingStart = nil
             self.reader?.cancel()
             self.reader = nil
             vless_proxy_stop()
+            finishStart?(POSIXError(.ECANCELED))
             completionHandler()
         }
     }
