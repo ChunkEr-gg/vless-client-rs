@@ -35,6 +35,7 @@ jobs:
           cp desktop/desktop-core/LICENSE target/profiles/CORE-LICENSE
           cp desktop/src/desktop/fonts/OFL.txt target/profiles/
           ./target/profiles/reality-sing-box$ext version
+          python3 desktop/tests/core_smoke.py "./target/profiles/reality-sing-box$ext"
       - name: Package Windows ZIP
         if: runner.os == 'Windows'
         shell: pwsh
