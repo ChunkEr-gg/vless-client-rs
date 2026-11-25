@@ -765,7 +765,7 @@ pub fn format_sha256_pin_hex(pin: &[u8; 32]) -> String {
 
 fn extract_cert_pin(params: &[(String, String)]) -> Result<Option<[u8; 32]>, ProfileError> {
     let mut resolved: Option<[u8; 32]> = None;
-    for key in ["pcs", "pin", "sha256"] {
+    for key in ["pcs", "pin", "sha256", "pinnedPeerCertSha256"] {
         if let Some(val) = find_param(params, key)
             && !val.is_empty()
         {
@@ -784,8 +784,7 @@ fn extract_cert_pin(params: &[(String, String)]) -> Result<Option<[u8; 32]>, Pro
 }
 
 fn strip_optional_sha256_prefix(s: &str) -> &str {
-    if s.len() > 7 {
-        let prefix = &s[..7];
+    if let Some(prefix) = s.get(..7) {
         if prefix.eq_ignore_ascii_case("sha256:") || prefix.eq_ignore_ascii_case("sha256/") {
             return &s[7..];
         }
@@ -963,6 +962,19 @@ mod tests {
             );
         }
         assert!(parse_profile_list(&format!("{list}\nbad")).is_err());
+    }
+
+    #[test]
+    fn honors_draft_clients_certificate_pin_parameter() {
+        let pin = "ab".repeat(32);
+        let link = format!(
+            "vless://{SAMPLE_UUID}@example.com:443?security=tls&sni=example.com&pinnedPeerCertSha256={pin}"
+        );
+        let profile = parse_vless_link(&link).unwrap().profile;
+        assert!(
+            matches!(profile.security, ProfileSecurity::Ktls { cert_sha256_pin: Some(value), .. } if value == [0xab; 32])
+        );
+        assert!(parse_sha256_pin("123456é0").is_err());
     }
 
     fn sample_pbk() -> ([u8; 32], String) {

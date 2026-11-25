@@ -4506,6 +4506,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vless-proxy"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "vless-profile",
+]
+
+[[package]]
 name = "vless-tray"
 version = "0.1.0"
 dependencies = [

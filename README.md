@@ -20,6 +20,25 @@ the full audit of removed modules, dependencies, and tests.
 
 ---
 
+## Windows SOCKS proxy
+
+The Windows x64 workflow builds the `vless-proxy-windows-x64` artifact. Extract
+`vless-proxy.exe` and place the Windows Xray executable alongside it. The launcher
+has been exercised with Xray 26.11.9. To compile the launcher locally, run
+`cargo build --locked --release -p vless-proxy`.
+
+Copy a VLESS link to the clipboard, then run this command in PowerShell from the
+directory containing both executables.
+
+```powershell
+Get-Clipboard -Raw | .\vless-proxy.exe .\xray.exe 1080
+```
+
+Configure your application to use SOCKS5 at `127.0.0.1:1080`. Use remote DNS
+in applications that support it. Press Ctrl+C in the foreground console to stop.
+The launcher sends the profile to Xray over its standard input. Windows system
+proxy integration and VPN mode are still under development.
+
 ## Architecture
 
 ```text

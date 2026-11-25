@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "profile",
+    "proxy",
     "ipc",
     "engine",
     "helper",
