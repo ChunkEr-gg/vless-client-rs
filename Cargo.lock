@@ -4980,7 +4980,6 @@ dependencies = [
  "directories",
  "eframe 0.37.0",
  "form_urlencoded",
- "libc",
  "percent-encoding",
  "rustls-pki-types",
  "serde",

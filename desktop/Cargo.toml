@@ -19,6 +19,3 @@ percent-encoding = "2"
 rustls-pki-types = "1"
 uuid = "1"
 directories = "6"
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"

@@ -55,16 +55,19 @@ def exercise(outbound):
     with ThreadingHTTPServer(("127.0.0.1", 0), Origin) as origin:
         threading.Thread(target=origin.serve_forever, daemon=True).start()
         with subprocess.Popen([sys.argv[1], "run", "--disable-color", "-c", "stdin"],
-                              env={**os.environ, "RK_DESKTOP_EVENTS": "1"},
+                              env={**os.environ, "RK_DESKTOP_EVENTS": "1", "RK_DESKTOP_PIPE": "1"},
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE) as core:
             with ThreadPoolExecutor(max_workers=1) as pool:
                 try:
-                    core.stdin.write(json.dumps(config).encode())
-                    core.stdin.close()
+                    core.stdin.write(json.dumps(config).encode() + b"\n")
+                    core.stdin.flush()
                     pool.submit(transfer, core, origin.server_port).result(timeout=20)
+                    core.stdin.close()
+                    assert core.wait(timeout=11) == 0, "graceful core shutdown failed"
                 finally:
-                    core.kill()
-                    core.wait()
+                    if core.poll() is None:
+                        core.kill()
+                        core.wait()
                     origin.shutdown()
 
 

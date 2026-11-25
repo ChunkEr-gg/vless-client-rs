@@ -1,11 +1,10 @@
 //! Generate configuration for the pinned desktop build of sing-box.
-use std::io::{Seek, Write};
 use std::net::SocketAddr;
 use std::process::Stdio;
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::oneshot;
 
@@ -79,22 +78,17 @@ pub(super) async fn run(
         result = tokio::time::timeout(Duration::from_secs(settings.timeout.into()),tokio::net::lookup_host((params.host.as_str(),port))) =>
             result.map_err(|_|"Server DNS lookup timed out")?.map_err(|e|format!("Server DNS lookup: {e}"))?.next().ok_or("Server DNS returned no addresses")?.ip(),
     };
-    let mut file = tempfile::tempfile().map_err(|e| e.to_string())?;
-    serde_json::to_writer(
-        &mut file,
-        &config(&profile, &host.to_string(), listen, &settings),
-    )
-    .map_err(|e| e.to_string())?;
-    file.flush()
-        .and_then(|_| file.rewind())
+    let mut config = serde_json::to_vec(&config(&profile, &host.to_string(), listen, &settings))
         .map_err(|e| e.to_string())?;
+    config.push(b'\n');
     let binary = std::env::current_exe()
         .map_err(|e| e.to_string())?
         .with_file_name(format!("reality-sing-box{}", std::env::consts::EXE_SUFFIX));
     let mut child = Command::new(binary)
         .args(["run", "--disable-color", "-c", "stdin"])
         .env("RK_DESKTOP_EVENTS", "1")
-        .stdin(file)
+        .env("RK_DESKTOP_PIPE", "1")
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
@@ -102,48 +96,72 @@ pub(super) async fn run(
         .map_err(|e| {
             format!("Starting reality-sing-box: {e}. Build the desktop core beside the client.")
         })?;
-    let mut output = BufReader::new(child.stdout.take().unwrap()).lines();
-    let mut errors = BufReader::new(child.stderr.take().unwrap()).lines();
-    let mut reading_out = true;
-    let mut reading_err = true;
-    let mut ready = false;
-    let deadline = tokio::time::sleep(Duration::from_secs(20));
-    tokio::pin!(deadline);
-    while reading_out || reading_err {
+    let mut input = child.stdin.take().unwrap();
+    let mut output = BufReader::new(child.stdout.take().unwrap());
+    let mut errors = BufReader::new(child.stderr.take().unwrap());
+    let result = async {
+        let deadline = tokio::time::sleep(Duration::from_secs(20));
+        tokio::pin!(deadline);
         tokio::select! {
-            _ = &mut cancel => {
-                #[cfg(unix)]
-                if let Some(pid)=child.id() {
-                    // SAFETY: this positive PID belongs to our unreaped child.
-                    unsafe {libc::kill(pid as libc::pid_t,libc::SIGTERM);}
-                }
-                #[cfg(windows)]
-                child.start_kill().map_err(|e|e.to_string())?;
-                if tokio::time::timeout(Duration::from_secs(5),child.wait()).await.is_err() {let _=child.kill().await;}
-                return Ok(());
-            }
-            _ = &mut deadline, if !ready => return Err("Desktop core did not report a listener within 20 seconds.".into()),
-            line=output.next_line(), if reading_out => match line.map_err(|e|e.to_string())? {
-                None=>reading_out=false,
-                Some(line)=> {
-                    if let Some(addr)=line.strip_prefix("READY ") {
-                        let address:SocketAddr=addr.parse().map_err(|_|"Malformed core address")?;
-                        if address.ip()!=listen.ip() || (listen.port()!=0 && address.port()!=listen.port()) {return Err("Unexpected core listener address".into());}
-                        ready=true;emit(Event::Listening(address));
-                    } else if let Some((up,down))=line.strip_prefix("BYTES ").and_then(|s|s.split_once(' ')) {
-                        if let (Ok(up),Ok(down))=(up.parse(),down.parse()) {emit(Event::Bytes(up,down));}
-                    } else {emit(log_line(line));}
-                }
-            },
-            line=errors.next_line(), if reading_err => match line.map_err(|e|e.to_string())? {
-                None=>reading_err=false, Some(line)=>emit(log_line(line))
-            },
+            _ = &mut cancel => return Ok(()),
+            _ = &mut deadline => return Err("Desktop core did not read its configuration.".into()),
+            result = input.write_all(&config) => result.map_err(|e| e.to_string())?,
         }
-    }
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-    Err(format!(
-        "Desktop core exited ({status}). See Activity for details."
-    ))
+        let mut output = (&mut output).lines();
+        let mut errors = (&mut errors).lines();
+        let mut reading_out = true;
+        let mut reading_err = true;
+        let mut ready = false;
+        while reading_out || reading_err {
+            tokio::select! {
+                _ = &mut cancel => return Ok(()),
+                _ = &mut deadline, if !ready => return Err("Desktop core did not report a listener within 20 seconds.".into()),
+                line=output.next_line(), if reading_out => match line.map_err(|e|e.to_string())? {
+                    None=>reading_out=false,
+                    Some(line)=> {
+                        if let Some(addr)=line.strip_prefix("READY ") {
+                            let address:SocketAddr=addr.parse().map_err(|_|"Malformed core address")?;
+                            if address.ip()!=listen.ip() || (listen.port()!=0 && address.port()!=listen.port()) {return Err("Unexpected core listener address".into());}
+                            ready=true;emit(Event::Listening(address));
+                        } else if let Some((up,down))=line.strip_prefix("BYTES ").and_then(|s|s.split_once(' ')) {
+                            if let (Ok(up),Ok(down))=(up.parse(),down.parse()) {emit(Event::Bytes(up,down));}
+                        } else {emit(log_line(line));}
+                    }
+                },
+                line=errors.next_line(), if reading_err => match line.map_err(|e|e.to_string())? {
+                    None=>reading_err=false, Some(line)=>emit(log_line(line))
+                },
+            }
+        }
+        Err("Desktop core exited unexpectedly. See Activity for details.".into())
+    }.await;
+
+    // EOF on the pipe requests a graceful shutdown on every platform.
+    drop(input);
+    let stopped = tokio::time::timeout(Duration::from_secs(11), async {
+        let mut discard_out = tokio::io::sink();
+        let mut discard_err = tokio::io::sink();
+        let (status, _, _) = tokio::join!(
+            child.wait(),
+            tokio::io::copy(&mut output, &mut discard_out),
+            tokio::io::copy(&mut errors, &mut discard_err)
+        );
+        let status = status.map_err(|e| e.to_string())?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("Desktop core shutdown failed ({status})."))
+        }
+    })
+    .await;
+    let stopped = match stopped {
+        Ok(result) => result,
+        Err(_) => {
+            let _ = child.kill().await;
+            Err("Desktop core did not shut down in time.".into())
+        }
+    };
+    result.and(stopped)
 }
 
 fn log_line(line: String) -> Event {

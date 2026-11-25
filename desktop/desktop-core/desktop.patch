@@ -8,15 +8,25 @@ index 3654fb6..7a3f476 100644
 -	if needClashAPI || needAPIService || options.PlatformLogWriter != nil {
 +	if options.DesktopTraffic || needClashAPI || needAPIService || options.PlatformLogWriter != nil {
 diff --git a/cmd/sing-box/cmd_run.go b/cmd/sing-box/cmd_run.go
-index fecd99a..a81755f 100644
 --- a/cmd/sing-box/cmd_run.go
 +++ b/cmd/sing-box/cmd_run.go
-@@ -4,0 +5,2 @@ import (
+@@ -3,0 +4 @@
++	"bufio"
+@@ -4,0 +6 @@
 +	"fmt"
+@@ -15,0 +18 @@
 +	"github.com/sagernet/sing-box/common/trafficcontrol"
-@@ -141,0 +144 @@ func create(options option.Options) (*box.Box, context.CancelFunc, error) {
+@@ -47,0 +51,2 @@
++var desktopStdin *bufio.Reader
++
+@@ -53 +58,3 @@
+-	if path == "stdin" {
++	if path == "stdin" && desktopStdin != nil {
++		configContent, err = desktopStdin.ReadBytes('\n')
++	} else if path == "stdin" {
+@@ -141,0 +149 @@
 +		DesktopTraffic:             os.Getenv("RK_DESKTOP_EVENTS") == "1",
-@@ -170,0 +174,24 @@ func create(options option.Options) (*box.Box, context.CancelFunc, error) {
+@@ -170,0 +179,24 @@
 +	if os.Getenv("RK_DESKTOP_EVENTS") == "1" {
 +		inbound, ok := instance.Inbound().Get("local")
 +		bound, isSOCKS := inbound.(interface{ DesktopAddress() string })
@@ -41,6 +51,37 @@ index fecd99a..a81755f 100644
 +			}
 +		}()
 +	}
+@@ -174,0 +207,6 @@
++	if os.Getenv("RK_DESKTOP_PIPE") == "1" {
++		if len(configPaths) != 1 || configPaths[0] != "stdin" || len(configDirectories) != 0 {
++			return E.New("desktop pipe requires one stdin configuration")
++		}
++		desktopStdin = bufio.NewReader(os.Stdin)
++	}
+@@ -189,0 +228,9 @@
++	var desktopClosed <-chan struct{}
++	if desktopStdin != nil {
++		closed := make(chan struct{})
++		desktopClosed = closed
++		go func() {
++			_, _ = io.Copy(io.Discard, desktopStdin)
++			close(closed)
++		}()
++	}
+@@ -197 +244,8 @@
+-			osSignal := <-osSignals
++			var osSignal os.Signal
++			select {
++			case osSignal = <-osSignals:
++			case <-desktopClosed:
++			}
++			if osSignal == syscall.SIGHUP && desktopStdin != nil {
++				continue
++			}
+@@ -210,0 +265,3 @@
++				if desktopStdin != nil {
++					return err
++				}
 diff --git a/common/tls/client.go b/common/tls/client.go
 index 7b30368..8a1d700 100644
 --- a/common/tls/client.go
