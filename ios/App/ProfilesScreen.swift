@@ -31,7 +31,11 @@ struct ProfilesScreen: View {
                 HStack {
                     Text("Profiles").font(.largeTitle.bold())
                     Spacer()
-                    Button("+ Import links") { input = ""; importing = true }
+                    Button("+ Import links") {
+                        input = ""
+                        proxy.notice = nil
+                        importing = true
+                    }
                         .buttonStyle(.borderedProminent).tint(ink)
                         .disabled(proxy.running || proxy.busy || vpn.active || vpn.busy)
                 }
