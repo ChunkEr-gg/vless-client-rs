@@ -688,7 +688,7 @@ async fn wait_for_shutdown_signal(#[cfg(unix)] mut sigterm: Option<tokio::signal
     }
 }
 
-async fn run_standalone_cli(args: RunArgs) -> io::Result<()> {
+async fn run_standalone_cli(args: RunArgs, bypass_local_networks: bool) -> io::Result<()> {
     // Register SIGTERM handler BEFORE starting listeners or emitting the ready banner on stderr so
     // an immediate SIGTERM from a supervisor or CLI harness is caught cleanly rather than hitting
     // the kernel default disposition (`SIG_DFL` -> exit status 15).
@@ -756,7 +756,11 @@ async fn run_standalone_cli(args: RunArgs) -> io::Result<()> {
                 args.outbound_if_index,
             );
             cfg.dns_resolver = args.dns_resolver;
-            cfg.bypass_cidrs = merged_tun_bypass_cidrs(&args.bypass_cidrs);
+            cfg.bypass_cidrs = if bypass_local_networks {
+                merged_tun_bypass_cidrs(&args.bypass_cidrs)
+            } else {
+                args.bypass_cidrs
+            };
             cfg.bypass_domains = args.bypass_domains;
 
             let (handle, mut state_rx) =
@@ -983,8 +987,47 @@ fn import_profiles() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(target_os = "android")]
+async fn run_android_vpn(socket_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::android::net::SocketAddrExt;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::net::{SocketAddr, UnixListener};
+    let address = SocketAddr::from_abstract_name(socket_name.as_bytes())?;
+    let listener = UnixListener::bind_addr(&address)?;
+    let (service, _) = listener.accept()?;
+    if vless_ipc::peer_uid(&service)? != unsafe { libc::geteuid() } {
+        return Err("VPN descriptor must come from the application UID".into());
+    }
+    let (_, descriptor) = vless_ipc::recv_frame_with_fd::<()>(&service)?;
+    let descriptor = descriptor.ok_or("missing Android VPN descriptor")?;
+    let fd = descriptor.as_raw_fd().to_string();
+    let CliAction::Run(args) = parse_cli_args(["run", "--link", "-", "--tun-fd", &fd])? else {
+        return Err("invalid VPN engine arguments".into());
+    };
+    // The standalone TUN entry point owns the descriptor until process exit.
+    let _ = descriptor.into_raw_fd();
+    service.set_nonblocking(true)?;
+    let mut service = UnixStream::from_std(service)?;
+    let mut event = [0u8; 1];
+    tokio::select! {
+        result = run_standalone_cli(*args, false) => result?,
+        _ = tokio::io::AsyncReadExt::read(&mut service, &mut event) => {}
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() {
+    #[cfg(target_os = "android")]
+    if let [mode, socket] = std::env::args().skip(1).collect::<Vec<_>>().as_slice()
+        && mode == "android-vpn"
+    {
+        if let Err(err) = run_android_vpn(socket).await {
+            eprintln!("VPN startup failed: {err}");
+            std::process::exit(2);
+        }
+        return;
+    }
     if std::env::args().skip(1).eq(["import-profiles"]) {
         if import_profiles().is_err() {
             eprintln!("Invalid VLESS link or subscription");
@@ -1003,7 +1046,7 @@ async fn main() {
             run_ipc_loop().await;
         }
         Ok(CliAction::Run(run_args)) => {
-            if let Err(err) = run_standalone_cli(*run_args).await {
+            if let Err(err) = run_standalone_cli(*run_args, true).await {
                 eprintln!("vless-engine: {err}");
                 std::process::exit(1);
             }

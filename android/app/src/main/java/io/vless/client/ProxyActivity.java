@@ -34,7 +34,56 @@ public final class ProxyActivity extends Activity {
     private LinearLayout rows;
     private EditText search;
     private TextView name, details, address;
-    private Button tests, add;
+    private Button tests, add, vpn;
+    private static final int VPN_CONSENT = 24;
+    private final android.content.BroadcastReceiver vpnChanges = new android.content.BroadcastReceiver() {
+        @Override
+        public void onReceive(android.content.Context context, android.content.Intent intent) {
+            render();
+        }
+    };
+    private boolean vpnActive() {
+        return "Starting".equals(TunnelService.state) || "Connected".equals(TunnelService.state);
+    }
+    private void toggleVpn() {
+        if (vpnActive()) {
+            startService(new android.content.Intent(this, TunnelService.class).setAction("stop"));
+            return;
+        }
+        android.content.Intent consent = android.net.VpnService.prepare(this);
+        if (consent == null)
+            launchVpn();
+        else
+            startActivityForResult(consent, VPN_CONSENT);
+    }
+    private void launchVpn() {
+        JSONObject item = current();
+        if (item != null && engine == null)
+            startForegroundService(new android.content.Intent(this, TunnelService.class)
+                                       .putExtra("link", item.optString("link"))
+                                       .putExtra("name", item.optString("name")));
+    }
+    @Override
+    protected void onActivityResult(int request, int result, android.content.Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request == VPN_CONSENT && result == RESULT_OK)
+            launchVpn();
+    }
+    @Override
+    protected void onStart() {
+        super.onStart();
+        android.content.IntentFilter filter = new android.content.IntentFilter(TunnelService.CHANGED);
+        if (android.os.Build.VERSION.SDK_INT >= 33)
+            registerReceiver(vpnChanges, filter, RECEIVER_NOT_EXPORTED);
+        else
+            registerReceiver(vpnChanges, filter);
+        render();
+    }
+    @Override
+    protected void onStop() {
+        unregisterReceiver(vpnChanges);
+        super.onStop();
+    }
     private boolean listening;
     private static final int INK = 0xff121212, PAPER = Color.WHITE, MUTED = 0xff595959;
     private static final int CANVAS = 0xffeaeaea, EMBER = 0xffff3616;
@@ -111,6 +160,9 @@ public final class ProxyActivity extends Activity {
                 stopProxy();
         });
         block(card, connect, 48);
+        vpn = button("Connect VPN", 0xff333333, PAPER);
+        vpn.setOnClickListener(view -> toggleVpn());
+        block(card, vpn, 48);
         search.addTextChangedListener(new TextWatcher() {
             public void afterTextChanged(Editable e) {
                 renderRows();
@@ -179,14 +231,14 @@ public final class ProxyActivity extends Activity {
             row.setBackground(surface(i == selected ? 0xffdedede : CANVAS, 12));
             final int index = i;
             row.setOnClickListener(v -> {
-                if (engine != null)
+                if (engine != null || vpnActive())
                     return;
                 selected = index;
                 getPreferences(MODE_PRIVATE).edit().putInt("selected", index).apply();
                 render();
             });
             row.setOnLongClickListener(v -> {
-                if (engine != null)
+                if (engine != null || vpnActive())
                     return false;
                 new AlertDialog.Builder(this)
                     .setTitle("Remove profile?")
@@ -224,8 +276,18 @@ public final class ProxyActivity extends Activity {
         status.setTextColor(listening ? EMBER : 0xffbbbbbb);
         tests.setVisibility(listening ? View.VISIBLE : View.GONE);
         connect.setText(engine == null ? "Start proxy" : "Stop proxy");
-        connect.setEnabled(p != null);
-        add.setEnabled(engine == null);
+        boolean active = vpnActive();
+        if (active) {
+            name.setText(TunnelService.profileName);
+            status.setText("●  VPN " + TunnelService.state.toLowerCase(Locale.ROOT));
+            status.setTextColor(EMBER);
+        } else if ("Failed".equals(TunnelService.state) && engine == null) {
+            status.setText("VPN disconnected. Check the profile or retry.");
+        }
+        connect.setEnabled(p != null && !active);
+        add.setEnabled(engine == null && !active);
+        vpn.setEnabled(engine == null && (p != null || active));
+        vpn.setText(active ? "Disconnect VPN" : "Connect VPN");
     }
     private void importDialog() {
         EditText field = new EditText(this);
