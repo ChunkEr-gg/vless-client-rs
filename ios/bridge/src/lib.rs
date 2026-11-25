@@ -50,3 +50,46 @@ pub extern "C" fn vless_proxy_stop() {
         let _ = runtime.block_on(handle.stop());
     }
 }
+
+/// Imports a subscription and returns owned JSON or null on invalid input.
+///
+/// # Safety
+/// `input` must remain a valid C string for the duration of this call.
+/// Release the returned string with `vless_profiles_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vless_profiles_import(input: *const c_char) -> *mut c_char {
+    if input.is_null() {
+        return std::ptr::null_mut();
+    }
+    let input = unsafe { CStr::from_ptr(input) };
+    if input.to_bytes().len() > 1024 * 1024 {
+        return std::ptr::null_mut();
+    }
+    let Some(entries) = input
+        .to_str()
+        .ok()
+        .and_then(|s| vless_profile::parse_profile_list(s).ok())
+    else {
+        return std::ptr::null_mut();
+    };
+    if entries.len() > 128 {
+        return std::ptr::null_mut();
+    }
+    let rows: Vec<_> = entries.into_iter().map(|entry| {
+        let p = entry.profile;
+        serde_json::json!({"name":p.name, "link":p.to_vless_link(), "endpoint":p.server_addr_display(),
+            "security":if p.security.is_reality() {"REALITY + Vision"} else {"TLS"}, "warnings":entry.warnings})
+    }).collect();
+    std::ffi::CString::new(serde_json::Value::Array(rows).to_string())
+        .expect("JSON escapes NUL")
+        .into_raw()
+}
+
+/// # Safety
+/// `json` must be null or a live pointer returned by `vless_profiles_import`, released exactly once.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vless_profiles_free(json: *mut c_char) {
+    if !json.is_null() {
+        drop(unsafe { std::ffi::CString::from_raw(json) });
+    }
+}

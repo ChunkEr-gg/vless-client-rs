@@ -6,31 +6,60 @@ struct VlessApp: App {
 
     var body: some Scene {
         WindowGroup {
-            NavigationStack {
-                Form {
-                    Section("Profile") {
-                        SecureField("VLESS share link", text: $proxy.link)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .disabled(proxy.running || proxy.busy)
-                    }
-                    Section {
-                        Button(proxy.running ? "Stop proxy" : "Start proxy") {
-                            proxy.toggle()
-                        }
-                        .disabled(proxy.busy || (!proxy.running && proxy.link.isEmpty))
-                        Text(proxy.status)
-                    }
-                }
-                .navigationTitle("VLESS Client")
-            }
+            ProfilesScreen(proxy: proxy)
         }
     }
 }
 
 @MainActor
 final class ProxyController: ObservableObject {
-    @Published var link = ""
+    @Published private(set) var profiles: [SavedProfile] = []
+    @Published var selection: String?
+    @Published var notice: String?
+    var active: SavedProfile? { profiles.first { $0.link == selection } ?? profiles.first }
+    private static func storage() throws -> URL {
+        let dir = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                              appropriateFor: nil, create: true)
+        var privateDir = dir.appendingPathComponent("Profiles", isDirectory: true)
+        try FileManager.default.createDirectory(at: privateDir, withIntermediateDirectories: true)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try privateDir.setResourceValues(values)
+        return privateDir.appendingPathComponent("library.json")
+    }
+    init() {
+        do {
+            let file = try Self.storage()
+            if FileManager.default.fileExists(atPath: file.path) {
+                profiles = try JSONDecoder().decode([SavedProfile].self, from: Data(contentsOf: file))
+            }
+        } catch { notice = "Could not load saved profiles." }
+    }
+    private func save(_ next: [SavedProfile]) throws {
+        try JSONEncoder().encode(next).write(to: Self.storage(), options: [.atomic, .completeFileProtection])
+        profiles = next
+    }
+    func add(_ value: String) -> Bool {
+        guard !value.utf8.contains(0), let raw = value.withCString({ vless_profiles_import($0) }) else {
+            notice = "Enter valid VLESS links or a VLESS subscription."; return false
+        }
+        defer { vless_profiles_free(raw) }
+        do {
+            let incoming = try JSONDecoder().decode([SavedProfile].self, from: Data(String(cString: raw).utf8))
+            var next = profiles
+            for entry in incoming where !next.contains(where: { $0.link == entry.link }) { next.append(entry) }
+            guard next.count <= 128 else { notice = "Save up to 128 profiles."; return false }
+            try save(next)
+            selection = incoming.first?.link
+            notice = incoming.flatMap(\.warnings).first
+            return true
+        } catch { notice = "Could not save profiles."; return false }
+    }
+    func remove(_ entry: SavedProfile) {
+        guard !running && !busy else { return }
+        do { try save(profiles.filter { $0.link != entry.link }) }
+        catch { notice = "Could not remove profile." }
+    }
     @Published var running = false
     @Published var busy = false
     @Published var status = "Disconnected"
@@ -39,7 +68,7 @@ final class ProxyController: ObservableObject {
         guard !busy else { return }
         busy = true
         let stopping = running
-        let profile = link
+        let profile = active?.link ?? ""
         Task {
             let result = await Task.detached {
                 if stopping {

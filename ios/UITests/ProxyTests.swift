@@ -5,15 +5,24 @@ final class ProxyTests: XCTestCase {
     func testStartNegotiateSocksAndStop() throws {
         let app = XCUIApplication()
         app.launch()
+        app.buttons["+ Import links"].tap()
         let field = app.secureTextFields["VLESS share link"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.tap()
         field.typeText("vless://00000000-0000-4000-8000-000000000001@127.0.0.1:19443?security=tls&sni=example.com")
+        app.buttons["Import"].tap()
         app.buttons["Start proxy"].tap()
         XCTAssertTrue(app.staticTexts["HTTP and SOCKS5 proxy at 127.0.0.1:2080"].waitForExistence(timeout: 10))
         try negotiateSocks()
+        app.buttons["Connection tests"].tap()
+        XCTAssertTrue(app.buttons["Country"].waitForExistence(timeout: 5))
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Profiles connection tests"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        app.buttons["Close"].tap()
         app.buttons["Stop proxy"].tap()
-        XCTAssertTrue(app.staticTexts["Disconnected"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Proxy offline"].waitForExistence(timeout: 10))
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         XCTAssertGreaterThanOrEqual(fd, 0)
         defer { close(fd) }

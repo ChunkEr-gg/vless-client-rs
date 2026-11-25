@@ -12,3 +12,5 @@ crate-type = ["staticlib", "rlib"]
 [dependencies]
 vless-engine = { path = "../../engine" }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time"] }
+vless-profile = { path = "../../profile" }
+serde_json = "1"
