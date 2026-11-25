@@ -1,0 +1,23 @@
+name: VlessClient
+options:
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  VlessClient:
+    type: application
+    platform: iOS
+    sources: [App]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.vless.client
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        SWIFT_OBJC_BRIDGING_HEADER: App/VlessMobile.h
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        OTHER_LDFLAGS: "$(inherited) -lvless_mobile -framework Security -framework SystemConfiguration -framework CoreFoundation -lresolv"
+        LIBRARY_SEARCH_PATHS: "$(inherited) $(BUILT_PRODUCTS_DIR)"
+        SWIFT_VERSION: "5.0"
+    preBuildScripts:
+      - name: Build Rust engine
+        script: '"$SRCROOT/build-bridge.sh"'
+        basedOnDependencyAnalysis: false

@@ -4,6 +4,7 @@ members = [
     "proxy",
     "ipc",
     "engine",
+    "ios/bridge",
     "helper",
     "app",
 ]

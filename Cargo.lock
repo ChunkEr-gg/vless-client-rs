@@ -4493,6 +4493,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vless-mobile"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "vless-engine",
+]
+
+[[package]]
 name = "vless-profile"
 version = "0.1.0"
 dependencies = [
