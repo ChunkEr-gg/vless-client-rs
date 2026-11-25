@@ -36,7 +36,9 @@ public final class ProxyActivity extends Activity {
     private EditText search;
     private TextView name, details, address;
     private LinearLayout listenerRow;
-    private static final String LISTENER_ADDRESS = "127.0.0.1:2080";
+    static final String LISTENER_HOST = "127.0.0.1";
+    static final int LISTENER_PORT = 2080;
+    private static final String LISTENER_ADDRESS = LISTENER_HOST + ":" + LISTENER_PORT;
     private Button tests, add, vpn, bypass;
     private static final int PICK_PROFILE_FILE = 25;
     private EditText importField;
@@ -547,7 +549,7 @@ public final class ProxyActivity extends Activity {
         File binary = new File(getApplicationInfo().nativeLibraryDir, "libvless_engine.so");
         try {
             Process child =
-                new ProcessBuilder(binary.getPath(), "run", "--link", "-", "--listen", "127.0.0.1:2080")
+                new ProcessBuilder(binary.getPath(), "run", "--link", "-", "--listen", LISTENER_ADDRESS)
                     .redirectErrorStream(true)
                     .start();
             engine = child;

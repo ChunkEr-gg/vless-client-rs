@@ -100,7 +100,7 @@ final class ConnectionTests {
                     URL endpoint = new URL(target);
                     if (!endpoint.getProtocol().equals("https"))
                         throw new IOException("Enter an HTTPS URL.");
-                    Proxy proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress("127.0.0.1", 2080));
+                    Proxy proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress(ProxyActivity.LISTENER_HOST, ProxyActivity.LISTENER_PORT));
                     HttpsURLConnection connection = (HttpsURLConnection) endpoint.openConnection(proxy);
                     active.set(connection);
                     if (closed.get())
