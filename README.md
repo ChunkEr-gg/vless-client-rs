@@ -33,9 +33,9 @@ For a local build, run `cargo build --release -p vless-desktop` and
 
 ## Windows SOCKS proxy
 
-The Windows x64 workflow builds the `vless-proxy-windows-x64` artifact. Extract
-`vless-proxy.exe` and place the Windows Xray executable alongside it. The launcher
-has been exercised with Xray 26.11.9. To compile the launcher locally, run
+The Windows x64 workflow builds the `vless-proxy-windows-x64` artifact. Extract both
+`vless-proxy.exe` and the included Xray 26.11.9 runtime into the same folder.
+CI verifies the upstream archive digest and transfers a payload through the packaged binaries. To compile the launcher locally, run
 `cargo build --locked --release -p vless-proxy`.
 
 Copy a VLESS link to the clipboard, then run this command in PowerShell from the
