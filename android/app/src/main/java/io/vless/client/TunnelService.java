@@ -22,7 +22,9 @@ public final class TunnelService extends VpnService {
     private volatile boolean stopping;
     private Thread worker;
 
-    private void publish(String value) {
+    private synchronized void publish(String value) {
+        if (stopping && "Connected".equals(value))
+            return;
         state = value;
         sendBroadcast(new Intent(CHANGED).setPackage(getPackageName()));
     }
@@ -147,8 +149,10 @@ public final class TunnelService extends VpnService {
         throw new IOException("Engine did not open the VPN descriptor channel");
     }
 
-    private void stopTunnel() {
+    private synchronized void stopTunnel() {
         stopping = true;
+        if ("Connected".equals(state) || "Starting".equals(state))
+            publish("Disconnecting");
         Process running = child;
         if (running != null)
             running.destroy();

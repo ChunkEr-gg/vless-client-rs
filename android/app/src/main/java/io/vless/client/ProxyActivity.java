@@ -48,7 +48,8 @@ public final class ProxyActivity extends Activity {
         }
     };
     private boolean vpnActive() {
-        return "Starting".equals(TunnelService.state) || "Connected".equals(TunnelService.state);
+        return "Starting".equals(TunnelService.state) || "Connected".equals(TunnelService.state)
+            || "Disconnecting".equals(TunnelService.state);
     }
     private void toggleVpn() {
         if (vpnActive()) {
@@ -399,8 +400,9 @@ public final class ProxyActivity extends Activity {
         connect.setEnabled(p != null && !active);
         add.setEnabled(engine == null && !active);
         bypass.setEnabled(!active);
-        vpn.setEnabled(engine == null && (p != null || active));
-        vpn.setText(active ? "Disconnect VPN" : "Connect VPN");
+        boolean disconnecting = "Disconnecting".equals(TunnelService.state);
+        vpn.setEnabled(!disconnecting && engine == null && (p != null || active));
+        vpn.setText(disconnecting ? "Disconnecting…" : active ? "Disconnect VPN" : "Connect VPN");
     }
     private void showRoutingApps(boolean inclusive, String title) {
         android.content.pm.PackageManager manager = getPackageManager();
