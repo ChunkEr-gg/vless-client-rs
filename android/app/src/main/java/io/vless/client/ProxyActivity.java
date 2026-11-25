@@ -341,13 +341,23 @@ public final class ProxyActivity extends Activity {
             row.setOnLongClickListener(v -> {
                 if (engine != null || vpnActive())
                     return false;
+                java.util.List<String> actions = new java.util.ArrayList<>();
+                actions.add("Share profile");
+                if (filter.isEmpty() && index > 0)
+                    actions.add("Move up");
+                if (filter.isEmpty() && index + 1 < profiles.length())
+                    actions.add("Move down");
+                actions.add("Remove profile");
                 new AlertDialog.Builder(this)
                     .setTitle(title)
-                    .setItems(new String[] {"Share profile", "Remove profile"}, (dialog, action) -> {
-                        if (action == 0) {
+                    .setItems(actions.toArray(new String[0]), (dialog, action) -> {
+                        String choice = actions.get(action);
+                        if (choice.equals("Share profile")) {
                             android.content.Intent share = new android.content.Intent(android.content.Intent.ACTION_SEND)
                                 .setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, p.optString("link"));
                             startActivity(android.content.Intent.createChooser(share, "Share profile"));
+                        } else if (choice.equals("Move up") || choice.equals("Move down")) {
+                            moveProfile(index, choice.equals("Move up") ? index - 1 : index + 1);
                         } else {
                             confirmRemoval(index, title);
                         }
@@ -357,6 +367,19 @@ public final class ProxyActivity extends Activity {
             rows.addView(row);
         }
     }
+    private void moveProfile(int from, int to) {
+        java.util.List<JSONObject> ordered = new java.util.ArrayList<>();
+        for (int i = 0; i < profiles.length(); i++)
+            ordered.add(profiles.optJSONObject(i));
+        JSONObject active = current();
+        java.util.Collections.swap(ordered, from, to);
+        selected = ordered.indexOf(active);
+        profiles = new JSONArray(ordered);
+        getPreferences(MODE_PRIVATE).edit().putString("profiles", profiles.toString())
+            .putInt("selected", selected).apply();
+        render();
+    }
+
     private void confirmRemoval(int index, String title) {
         new AlertDialog.Builder(this)
             .setTitle("Remove profile?")
