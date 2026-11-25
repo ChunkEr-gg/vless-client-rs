@@ -103,6 +103,20 @@ struct ProfilesScreen: View {
             }.padding(18)
         }
         .background(Color(white: 0.92)).preferredColorScheme(.light)
+        .onOpenURL { url in
+            guard url.scheme?.lowercased() == "vless" else { return }
+            guard !proxy.running, !proxy.busy, !vpn.active, !vpn.busy else {
+                proxy.notice = "Disconnect before importing profiles."
+                return
+            }
+            guard url.absoluteString.utf8.count <= 1_048_576 else {
+                proxy.notice = "Share up to 1 MiB of VLESS links."
+                return
+            }
+            proxy.notice = nil
+            input = url.absoluteString
+            importing = true
+        }
         .sheet(isPresented: $importing) {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Import links").font(.title2.bold())

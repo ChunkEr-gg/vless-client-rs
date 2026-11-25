@@ -23,6 +23,8 @@ jobs:
           xcodebuild -project ios/VlessClient.xcodeproj -scheme VlessClient -configuration Release \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
             ARCHS=arm64 -derivedDataPath ios/build CODE_SIGNING_ALLOWED=NO build
+          app=ios/build/Build/Products/Release-iphonesimulator/VlessClient.app
+          test "$(plutil -extract CFBundleURLTypes.0.CFBundleURLSchemes.0 raw "$app/Info.plist")" = vless
           test -x ios/build/Build/Products/Release-iphonesimulator/VlessClient.app/PlugIns/PacketTunnel.appex/PacketTunnel
           ditto -c -k --keepParent ios/build/Build/Products/Release-iphonesimulator/VlessClient.app ios/VlessClient-simulator.zip
       - name: Exercise proxy on an iPhone simulator

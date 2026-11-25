@@ -14,6 +14,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.vless.client
         CODE_SIGN_ENTITLEMENTS: Vless.entitlements
+        INFOPLIST_FILE: AppInfo.plist
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         SWIFT_OBJC_BRIDGING_HEADER: App/VlessMobile.h
