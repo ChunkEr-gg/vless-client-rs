@@ -435,7 +435,7 @@ pub fn parse_vless_link(link: &str) -> Result<ImportOutcome, ProfileError> {
 
     // `type`: defaults to `"tcp"`; anything else (`ws`, `grpc`, `xhttp`, `quic`, `http`, ...) is an error.
     if let Some(transport) = find_param(&params, "type")
-        && transport != "tcp"
+        && !matches!(transport, "tcp" | "raw")
     {
         return Err(ProfileError::UnsupportedTransport(transport.to_string()));
     }
@@ -832,12 +832,18 @@ fn parse_raw_query(query: Option<&str>) -> Result<Vec<(String, String)>, Profile
         return Ok(Vec::new());
     };
     let mut pairs = Vec::new();
+    let mut keys = std::collections::HashSet::new();
     for segment in query.split('&') {
         if segment.is_empty() {
             continue;
         }
         let (raw_k, raw_v) = segment.split_once('=').unwrap_or((segment, ""));
         let key = percent_decode_utf8(raw_k, "query key")?;
+        if !keys.insert(key.clone()) {
+            return Err(ProfileError::InvalidUrl(
+                "duplicate VLESS link parameter".into(),
+            ));
+        }
         let val = percent_decode_utf8(raw_v, "query value")?;
         pairs.push((key, val));
     }
@@ -889,6 +895,17 @@ mod tests {
     use super::*;
 
     const SAMPLE_UUID: &str = "b831381d-6324-4d53-ad4f-8cda48b30811";
+
+    #[test]
+    fn imports_draft_client_raw_tcp_and_rejects_ambiguous_parameters() {
+        let link =
+            format!("vless://{SAMPLE_UUID}@example.com:443?security=tls&sni=example.com&type=raw");
+        parse_vless_link(&link).expect("raw TCP alias");
+        assert!(matches!(
+            parse_vless_link(&format!("{link}&%74ype=tcp")),
+            Err(ProfileError::InvalidUrl(_))
+        ));
+    }
 
     fn sample_pbk() -> ([u8; 32], String) {
         let key = [0x42u8; 32];
