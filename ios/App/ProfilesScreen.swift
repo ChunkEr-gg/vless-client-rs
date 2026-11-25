@@ -16,6 +16,8 @@ struct ProfilesScreen: View {
     @State private var choosingFile = false
     @State private var testing = false
     @State private var input = ""
+    @State private var subscriptionURL: URL?
+    private let maxImportBytes = 1_048_576
     private let ink = Color(white: 0.07)
     private let accent = Color(red: 1, green: 0.21, blue: 0.09)
 
@@ -124,7 +126,7 @@ struct ProfilesScreen: View {
                 proxy.notice = "Disconnect before importing profiles."
                 return
             }
-            guard url.absoluteString.utf8.count <= 1_048_576 else {
+            guard url.absoluteString.utf8.count <= maxImportBytes else {
                 proxy.notice = "Share up to 1 MiB of VLESS links."
                 return
             }
@@ -132,19 +134,28 @@ struct ProfilesScreen: View {
             input = url.absoluteString
             importing = true
         }
-        .sheet(isPresented: $importing) {
+        .sheet(isPresented: $importing, onDismiss: { subscriptionURL = nil }) {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Import links").font(.title2.bold())
-                SecureField("VLESS share link", text: $input)
+                SecureField("VLESS link or HTTPS subscription URL", text: $input)
+                    .accessibilityIdentifier("VLESS share link")
                     .textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
-                Button("Choose file…") { choosingFile = true }
+                    .disabled(subscriptionURL != nil)
+                Button("Choose file…") { choosingFile = true }.disabled(subscriptionURL != nil)
+                if subscriptionURL != nil {
+                    ProgressView("Downloading subscription…")
+                }
                 if let notice = proxy.notice { Text(notice).font(.footnote) }
                 HStack {
-                    Button("Import") { if proxy.add(input) { input = ""; importing = false } }
+                    Button("Import", action: importInput)
                         .buttonStyle(.borderedProminent).tint(ink)
+                        .disabled(subscriptionURL != nil)
                     Button("Cancel") { importing = false }.buttonStyle(.bordered)
                 }
             }.padding(22).presentationDetents([.medium])
+                .task(id: subscriptionURL) { [subscriptionURL] in
+                    if let url = subscriptionURL { await importSubscription(url) }
+                }
                 .fileImporter(isPresented: $choosingFile, allowedContentTypes: [.data]) { result in
                     do {
                         let url = try result.get()
@@ -152,8 +163,8 @@ struct ProfilesScreen: View {
                         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
                         let file = try FileHandle(forReadingFrom: url)
                         defer { try? file.close() }
-                        let data = try file.read(upToCount: 1_048_577) ?? Data()
-                        guard data.count <= 1_048_576, let text = String(data: data, encoding: .utf8) else {
+                        let data = try file.read(upToCount: maxImportBytes + 1) ?? Data()
+                        guard data.count <= maxImportBytes, let text = String(data: data, encoding: .utf8) else {
                             proxy.notice = "Choose a UTF-8 text file up to 1 MiB."
                             return
                         }
@@ -167,5 +178,78 @@ struct ProfilesScreen: View {
                 }
         }
         .sheet(isPresented: $testing) { ConnectionTestsView(profile: proxy.active?.name ?? "") }
+    }
+
+    private func importInput() {
+        let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard value.utf8.count <= maxImportBytes else {
+            proxy.notice = "Import up to 1 MiB of VLESS links."
+            return
+        }
+        if let url = URL(string: value), url.scheme?.lowercased() == "https", url.host != nil {
+            proxy.notice = nil
+            subscriptionURL = url
+        } else {
+            saveImport(value)
+        }
+    }
+
+    private func saveImport(_ value: String) {
+        if proxy.add(value) {
+            input = ""
+            importing = false
+        }
+    }
+
+    @MainActor
+    private func importSubscription(_ url: URL) async {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 30
+        let session = URLSession(configuration: config)
+        defer {
+            session.invalidateAndCancel()
+            if !Task.isCancelled && subscriptionURL == url { subscriptionURL = nil }
+        }
+        do {
+            let (bytes, response) = try await session.bytes(from: url, delegate: HTTPSSubscriptionRedirects())
+            try Task.checkCancellation()
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                  http.url?.scheme?.lowercased() == "https" else {
+                proxy.notice = "Could not download the subscription."
+                return
+            }
+            guard http.expectedContentLength <= Int64(maxImportBytes) else {
+                proxy.notice = "Import up to 1 MiB of VLESS links."
+                return
+            }
+            var data = Data()
+            for try await byte in bytes {
+                guard data.count < maxImportBytes else {
+                    proxy.notice = "Import up to 1 MiB of VLESS links."
+                    return
+                }
+                data.append(byte)
+            }
+            try Task.checkCancellation()
+            guard importing, subscriptionURL == url else { return }
+            guard let text = String(data: data, encoding: .utf8) else {
+                proxy.notice = "The subscription must contain UTF-8 text."
+                return
+            }
+            saveImport(text)
+        } catch {
+            if !Task.isCancelled && importing && subscriptionURL == url {
+                proxy.notice = "Could not download the subscription."
+            }
+        }
+    }
+}
+
+private final class HTTPSSubscriptionRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest) async -> URLRequest? {
+        request.url?.scheme?.lowercased() == "https" ? request : nil
     }
 }
