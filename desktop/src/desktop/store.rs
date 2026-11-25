@@ -81,6 +81,23 @@ pub struct Details {
 }
 
 impl SavedProfile {
+    pub fn share_link(&self) -> String {
+        let mut profile = parse_vless_link(&self.link)
+            .expect("validated saved link")
+            .profile;
+        profile.name.clone_from(&self.label);
+        if let (
+            Some(pin),
+            vless_profile::ProfileSecurity::Ktls {
+                cert_sha256_pin, ..
+            },
+        ) = (&self.pin, &mut profile.security)
+        {
+            *cert_sha256_pin = Some(parse_sha256_pin(pin).expect("validated saved pin"));
+        }
+        profile.to_vless_link()
+    }
+
     pub fn new(label: &str, link: &str, pin: &str) -> Result<Self, String> {
         let link = link.trim();
         if link.len() as u64 > MAX_LINK_SIZE {
@@ -263,6 +280,15 @@ mod tests {
         let uri = "vless://11111111-1111-4111-8111-111111111111@[::1]:443?security=tls&sni=server.test#Test%20server";
         let pin = "ab".repeat(32);
         let profile = SavedProfile::new("", uri, &pin).unwrap();
+        let mut renamed = profile.clone();
+        renamed.label = "Office & home".into();
+        let shared = parse_vless_link(&renamed.share_link()).unwrap().profile;
+        assert_eq!(shared.name, renamed.label);
+        assert!(
+            matches!(shared.security, vless_profile::ProfileSecurity::Ktls {
+            cert_sha256_pin: Some(bytes), ..
+        } if bytes == [0xab; 32])
+        );
         book.insert(profile.clone(), None).unwrap();
         assert!(book.insert(profile, None).is_err());
         assert_eq!(

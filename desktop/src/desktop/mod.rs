@@ -326,6 +326,10 @@ impl Desktop {
                         );
                         egui::Popup::menu(&trigger).show(|ui| {
                             ui.set_min_width(132.0);
+                            if ui.button("Copy share link").clicked() {
+                                ui.ctx().copy_text(profile.share_link());
+                                ui.close();
+                            }
                             if ui.button("Edit profile").clicked() {
                                 self.dialog = Some(Dialog::Profile(ProfileForm {
                                     editing: Some(self.book.selected),
