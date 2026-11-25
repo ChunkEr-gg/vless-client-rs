@@ -32,7 +32,6 @@ parking_lot = "0.12.5"
 rand = "0.10"
 rustc-hash = "2"
 rustls = "=0.23.46"
-rustls-platform-verifier = "0.6"
 serde = { version = "1", features = ["derive", "std"] }
 serde_json = "1"
 smoltcp = { version = "0.14", default-features = false, features = [
@@ -66,6 +65,9 @@ tokio = { version = "1", features = [
 tokio-util = { version = "0.7", features = ["time", "io", "rt"] }
 uuid = "1"
 zeroize = "1"
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+rustls-platform-verifier = "0.6"
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 webpki-roots = "1"

@@ -109,7 +109,19 @@ fn build_system_or_test_verifier(
         Ok(Arc::new(verifier))
     }
 
-    #[cfg(not(target_os = "macos"))]
+    // The standalone Android process has no Java VM for the platform verifier.
+    #[cfg(target_os = "android")]
+    {
+        let verifier = rustls::client::WebPkiServerVerifier::builder_with_provider(
+            get_webpki_root_cert_store(),
+            provider,
+        )
+        .build()
+        .map_err(std::io::Error::other)?;
+        Ok(verifier)
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "android")))]
     {
         match rustls_platform_verifier::Verifier::new(provider.clone()) {
             Ok(verifier) => Ok(Arc::new(verifier)),

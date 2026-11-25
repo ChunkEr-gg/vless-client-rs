@@ -93,7 +93,7 @@ Usage:
   vless-engine run --link 'vless://...' [OPTIONS]
 
 Required:
-  -l, --link <URI>                VLESS share URI (vless://uuid@host:port?...)
+  -l, --link <URI>                VLESS share URI, or - to read one from stdin
 
 Options:
       --listen <IP:PORT>          Listen address for HTTP/1.1 + SOCKS5 mixed proxy
@@ -280,6 +280,20 @@ fn parse_run_args(args: &[String]) -> Result<CliAction, CliError> {
     let raw_link = link.ok_or_else(|| {
         CliError::new("missing required `--link 'vless://...'` (see `vless-engine run --help`)")
     })?;
+    let raw_link = if raw_link == "-" {
+        use std::io::Read;
+        let mut text = String::new();
+        std::io::stdin()
+            .take(65537)
+            .read_to_string(&mut text)
+            .map_err(|e| CliError::new(format!("reading share link: {e}")))?;
+        if text.len() > 65536 || text.trim().lines().count() != 1 {
+            return Err(CliError::new("expected one share link on stdin"));
+        }
+        text
+    } else {
+        raw_link
+    };
     let outcome =
         parse_vless_link(&raw_link).map_err(|e| CliError::new(format!("invalid `--link`: {e}")))?;
 
