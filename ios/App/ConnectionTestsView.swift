@@ -47,9 +47,17 @@ struct ConnectionTestsView: View {
                         }
                     }
                 }.buttonStyle(.borderedProminent).tint(.black)
-                Button("Close") { dismiss() }.buttonStyle(.bordered)
+                Button("Close") { dismiss() }
+                    .buttonStyle(.bordered).tint(.black)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(Color(white: 0.82), lineWidth: 1)
+                            .allowsHitTesting(false)
+                    }
             }
-        }.padding(22).presentationDetents([.medium]).onDisappear { task?.cancel() }
+        }.padding(22)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .presentationDetents([.medium, .large]).onDisappear { task?.cancel() }
     }
 
     private func measure() async throws -> String {
