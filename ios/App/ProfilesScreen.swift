@@ -49,6 +49,7 @@ struct ProfilesScreen: View {
                         }
                         .padding(12).background(proxy.active?.link == item.link ? Color(white: 0.87) : .clear,
                                                 in: RoundedRectangle(cornerRadius: 12))
+                        .contentShape(Rectangle())
                     }
                     .accessibilityIdentifier("saved-profile-row")
                     .buttonStyle(.plain).disabled(proxy.running || proxy.busy || vpn.active || vpn.busy)

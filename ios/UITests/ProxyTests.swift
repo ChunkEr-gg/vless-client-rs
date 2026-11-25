@@ -16,14 +16,14 @@ final class ProxyTests: XCTestCase {
             XCTAssertEqual(detail.label, name)
         }
         let rows = app.buttons.matching(identifier: "saved-profile-row")
-        for name in ["Office", "Home"] {
+        for name in ["Office", "Home", "Office"] {
             rows.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch.tap()
             XCTAssertEqual(detail.label, name)
         }
         app.terminate()
         app.launch()
         XCTAssertTrue(detail.waitForExistence(timeout: 5))
-        XCTAssertEqual(detail.label, "Home")
+        XCTAssertEqual(detail.label, "Office")
     }
 
     func testStartNegotiateSocksAndStop() throws {
