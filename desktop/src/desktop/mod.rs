@@ -563,8 +563,12 @@ impl Desktop {
             book.insert(profile, Some(index))?;
             return self.save(book);
         }
-        let mut links = form
-            .links
+        if form.links.len() > 1024 * 1024 {
+            return Err("Import up to 1 MiB of links at a time.".into());
+        }
+        let decoded =
+            vless_profile::decode_profile_list(&form.links).map_err(|err| err.to_string())?;
+        let mut links = decoded
             .lines()
             .map(str::trim)
             .filter(|line| !line.is_empty())

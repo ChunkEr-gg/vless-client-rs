@@ -365,13 +365,22 @@ impl Profile {
 /// Imports a plaintext list of share links or a base64-encoded VLESS subscription body.
 /// Every link must validate before the caller receives any profiles.
 pub fn parse_profile_list(text: &str) -> Result<Vec<ImportOutcome>, ProfileError> {
+    decode_profile_list(text)?
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(parse_vless_link)
+        .collect()
+}
+
+/// Returns the original link text for callers that preserve share-link spelling.
+pub fn decode_profile_list(text: &str) -> Result<std::borrow::Cow<'_, str>, ProfileError> {
     let text = text.trim();
     if text.is_empty() {
         return Err(ProfileError::EmptyLink);
     }
-    let decoded;
     let links = if text.contains("://") {
-        text
+        std::borrow::Cow::Borrowed(text)
     } else {
         let encoded: String = text.split_ascii_whitespace().collect();
         let bytes = [
@@ -383,20 +392,15 @@ pub fn parse_profile_list(text: &str) -> Result<Vec<ImportOutcome>, ProfileError
         .iter()
         .find_map(|engine| engine.decode(&encoded).ok())
         .ok_or_else(|| ProfileError::InvalidUrl("invalid subscription encoding".into()))?;
-        decoded = String::from_utf8(bytes).map_err(|_| {
+        let decoded = String::from_utf8(bytes).map_err(|_| {
             ProfileError::InvalidUrl("subscription must contain UTF-8 links".into())
         })?;
-        decoded.trim()
+        std::borrow::Cow::Owned(decoded)
     };
-    if links.is_empty() {
+    if links.trim().is_empty() {
         return Err(ProfileError::EmptyLink);
     }
-    links
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(parse_vless_link)
-        .collect()
+    Ok(links)
 }
 
 /// Parses and validates a `vless://` link into an [`ImportOutcome`].

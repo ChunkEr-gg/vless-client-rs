@@ -145,7 +145,7 @@ impl ProfileForm {
             self.options(ui);
         } else {
             ui.label(
-                RichText::new("Paste one link per line.")
+                RichText::new("Paste one link per line or a base64 subscription.")
                     .size(13.0)
                     .color(MUTED),
             );
