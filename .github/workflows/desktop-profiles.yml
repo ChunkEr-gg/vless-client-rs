@@ -36,6 +36,12 @@ jobs:
           cp desktop/src/desktop/fonts/OFL.txt target/profiles/
           ./target/profiles/reality-sing-box$ext version
           python3 desktop/tests/core_smoke.py "./target/profiles/reality-sing-box$ext"
+      - name: Verify Windows TUN transfer and route cleanup
+        if: runner.os == 'Windows'
+        run: python3 desktop/tests/core_smoke.py ./target/profiles/reality-sing-box.exe --tun
+      - name: Verify macOS TUN transfer and route cleanup
+        if: runner.os == 'macOS'
+        run: sudo -n "$(command -v python3)" desktop/tests/core_smoke.py ./target/profiles/reality-sing-box --tun
       - name: Package Windows ZIP
         if: runner.os == 'Windows'
         shell: pwsh
