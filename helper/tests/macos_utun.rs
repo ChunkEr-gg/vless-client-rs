@@ -74,13 +74,30 @@ fn configured_utun_delivers_ipv4_udp_packet() {
 }
 
 #[test]
-#[ignore = "requires permission to install a macOS host route"]
-fn journal_recovery_removes_native_host_route() {
+#[ignore = "requires permission to configure macOS routes and DNS"]
+fn helper_binary_recovers_native_route_and_dns() {
     use std::process::Command;
-    use vless_tray_helper::{
-        HelperJournal, JOURNAL_SCHEMA_VERSION, RouteAddResult, RouteDestination, RouteSpec,
-        RouteTarget, UtunConfig, recover_if_present, save_journal,
+    use system_configuration::core_foundation::propertylist::{
+        create_data, kCFPropertyListXMLFormat_v1_0,
     };
+    use system_configuration::dynamic_store::{SCDynamicStore, SCDynamicStoreBuilder};
+    use vless_tray_helper::{
+        DnsSnapshot, HelperJournal, JOURNAL_SCHEMA_VERSION, RouteAddResult, RouteDestination,
+        RouteSpec, RouteTarget, UtunConfig, save_journal,
+    };
+
+    struct DnsCleanup<'a> {
+        store: &'a SCDynamicStore,
+        keys: [&'a str; 2],
+    }
+
+    impl Drop for DnsCleanup<'_> {
+        fn drop(&mut self) {
+            for key in self.keys {
+                self.store.remove(key);
+            }
+        }
+    }
 
     let backend = MacosSystemBackend::new();
     let (_fd, name) = backend.create_utun().unwrap();
@@ -105,6 +122,28 @@ fn journal_recovery_removes_native_host_route() {
         destination: RouteDestination::Host(destination.parse().unwrap()),
         target: RouteTarget::Interface(name.clone()),
     };
+    // Use a service ID dedicated to this fixture so recovery leaves live DNS alone.
+    let service_id = "757E8D55-7E69-4391-A470-3806000953C2";
+    let store = SCDynamicStoreBuilder::new("io.vless-tray.recovery-test")
+        .build()
+        .unwrap();
+    let state_key = format!("State:/Network/Service/{service_id}/DNS");
+    let setup_key = format!("Setup:/Network/Service/{service_id}/DNS");
+    assert!(store.get(state_key.as_str()).is_none());
+    assert!(store.get(setup_key.as_str()).is_none());
+    let _cleanup = DnsCleanup {
+        store: &store,
+        keys: [&state_key, &setup_key],
+    };
+    let original_resolver = "192.0.2.54".parse().unwrap();
+    let replacement_resolver = "192.0.2.53".parse().unwrap();
+    backend
+        .set_dns_override(service_id, original_resolver)
+        .unwrap();
+    let original_dns = store.get(state_key.as_str()).unwrap();
+    assert!(store.remove(setup_key.as_str()));
+    let xml = create_data(original_dns.as_CFTypeRef(), kCFPropertyListXMLFormat_v1_0).unwrap();
+
     let state = tempfile::tempdir().unwrap();
     let journal_path = state.path().join("helper-state.json");
     save_journal(
@@ -114,8 +153,15 @@ fn journal_recovery_removes_native_host_route() {
             utun_name: name.clone(),
             v4_gateway: None,
             v6_gateway: None,
-            dns_snapshots: vec![],
-            dns_resolver: "192.0.2.53".parse().unwrap(),
+            dns_snapshots: vec![DnsSnapshot {
+                service_id: service_id.into(),
+                had_state_dns: true,
+                state_dns_plist_xml: Some(String::from_utf8(xml.bytes().to_vec()).unwrap()),
+                had_setup_dns: false,
+                setup_dns_plist_xml: None,
+                original_dns_servers: vec![original_resolver],
+            }],
+            dns_resolver: replacement_resolver,
             server_ips: vec!["192.0.2.1".parse().unwrap()],
             bypass_cidrs: vec![],
             routes: vec![route.clone()],
@@ -125,8 +171,30 @@ fn journal_recovery_removes_native_host_route() {
     assert_eq!(backend.add_route(&route).unwrap(), RouteAddResult::Added);
     assert_eq!(route_interface().as_deref(), Some(name.as_str()));
 
-    assert!(recover_if_present(&backend, &journal_path).unwrap());
+    backend
+        .set_dns_override(service_id, replacement_resolver)
+        .unwrap();
+    let overridden_dns = store.get(state_key.as_str()).unwrap();
+    assert_ne!(overridden_dns, original_dns);
+    assert_eq!(store.get(setup_key.as_str()), Some(overridden_dns));
+
+    let recover = || {
+        let result = Command::new(env!("CARGO_BIN_EXE_vless-tray-helper"))
+            .arg("--recover-only")
+            .arg("--state-path")
+            .arg(&journal_path)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    };
+    recover();
     assert_eq!(route_interface(), original_interface);
+    assert_eq!(store.get(state_key.as_str()), Some(original_dns));
+    assert!(store.get(setup_key.as_str()).is_none());
     assert!(!journal_path.exists());
-    assert!(!recover_if_present(&backend, &journal_path).unwrap());
+    recover();
 }
