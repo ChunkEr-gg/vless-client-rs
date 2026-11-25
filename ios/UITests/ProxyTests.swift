@@ -20,10 +20,24 @@ final class ProxyTests: XCTestCase {
             rows.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch.tap()
             XCTAssertEqual(detail.label, name)
         }
+        let initialOrder = rows.allElementsBoundByIndex.map(\.label)
+        guard let officeIndex = initialOrder.firstIndex(where: { $0.contains("Office") }),
+              let homeIndex = initialOrder.firstIndex(where: { $0.contains("Home") }) else {
+            XCTFail("Both imported profiles must be visible")
+            return
+        }
+        let direction = officeIndex < homeIndex ? 1 : -1
+        var expectedOrder = initialOrder
+        expectedOrder.swapAt(officeIndex, officeIndex + direction)
+        rows.element(boundBy: officeIndex).press(forDuration: 1)
+        app.buttons[direction == 1 ? "Move down" : "Move up"].tap()
+        XCTAssertEqual(rows.allElementsBoundByIndex.map(\.label), expectedOrder)
+        XCTAssertEqual(detail.label, "Office")
         app.terminate()
         app.launch()
         XCTAssertTrue(detail.waitForExistence(timeout: 5))
         XCTAssertEqual(detail.label, "Office")
+        XCTAssertEqual(rows.allElementsBoundByIndex.map(\.label), expectedOrder)
     }
 
     func testStartNegotiateSocksAndStop() throws {
