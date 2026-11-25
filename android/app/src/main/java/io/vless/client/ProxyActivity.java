@@ -1,65 +1,314 @@
 package io.vless.client;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
+import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 public final class ProxyActivity extends Activity {
     private Process engine;
     private Button connect;
-    private EditText profile;
+    private JSONArray profiles;
+    private int selected;
+    private LinearLayout rows;
+    private EditText search;
+    private TextView name, details, address;
+    private Button tests, add;
+    private boolean listening;
+    private static final int INK = 0xff121212, PAPER = Color.WHITE, MUTED = 0xff595959;
+    private static final int CANVAS = 0xffeaeaea, EMBER = 0xffff3616;
     private TextView status;
 
-    @Override public void onCreate(Bundle state) {
+    @Override
+    public void onCreate(Bundle state) {
         super.onCreate(state);
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        int pad = Math.round(20 * getResources().getDisplayMetrics().density);
-        layout.setPadding(pad, pad, pad, pad);
-        layout.setOnApplyWindowInsetsListener((view, insets) -> {
-            view.setPadding(pad, pad + insets.getSystemWindowInsetTop(), pad,
-                    pad + insets.getSystemWindowInsetBottom());
+        try {
+            profiles = new JSONArray(getPreferences(MODE_PRIVATE).getString("profiles", "[]"));
+        } catch (JSONException err) {
+            throw new IllegalStateException("Invalid saved profiles", err);
+        }
+        selected = getPreferences(MODE_PRIVATE).getInt("selected", 0);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(CANVAS);
+        LinearLayout layout = column(18);
+        scroll.addView(layout);
+        scroll.setOnApplyWindowInsetsListener((view, insets) -> {
+            view.setPadding(0, insets.getSystemWindowInsetTop(), 0, insets.getSystemWindowInsetBottom());
             return insets;
         });
-        profile = new EditText(this);
-        profile.setHint("VLESS share link");
-        profile.setSingleLine(true);
-        profile.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        connect = new Button(this);
-        connect.setText("Start proxy");
-        connect.setOnClickListener(v -> {
-            if (engine == null) startProxy(); else stopProxy();
+        LinearLayout heading = new LinearLayout(this);
+        heading.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        heading.addView(label("Profiles", 30, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
+        add = button("+  Import links", INK, PAPER);
+        add.setOnClickListener(v -> importDialog());
+        heading.addView(add);
+        layout.addView(heading);
+        search = new EditText(this);
+        search.setSingleLine(true);
+        search.setHint("Search profiles");
+        search.setTextColor(INK);
+        search.setHintTextColor(MUTED);
+        search.setPadding(dp(14), 0, dp(14), 0);
+        search.setBackground(surface(PAPER, 10));
+        block(layout, search, 46);
+        rows = column(0);
+        block(layout, rows, -2);
+        LinearLayout card = column(22);
+        card.setBackground(new GradientDrawable() {
+            private final android.graphics.Paint dots =
+                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            {
+                setColor(INK);
+                setCornerRadius(dp(20));
+                dots.setColor(0xff2a2a2a);
+            }
+            @Override
+            public void draw(android.graphics.Canvas canvas) {
+                super.draw(canvas);
+                for (int y = dp(12); y < getBounds().height() - dp(10); y += dp(14))
+                    for (int x = dp(12); x < getBounds().width() - dp(10); x += dp(14))
+                        canvas.drawCircle(x, y, dp(1), dots);
+            }
         });
-        status = new TextView(this);
-        status.setText("Disconnected");
-        layout.addView(profile);
-        layout.addView(connect);
-        layout.addView(status);
-        setContentView(layout);
+        block(layout, card, -2);
+        status = label("●  Proxy offline", 14, 0xffbbbbbb, true);
+        card.addView(status);
+        name = label("", 28, PAPER, true);
+        block(card, name, -2);
+        details = label("", 16, 0xffbbbbbb, false);
+        card.addView(details);
+        address = label("", 14, PAPER, false);
+        block(card, address, -2);
+        tests = button("Connection tests", 0xff333333, PAPER);
+        tests.setOnClickListener(v -> ConnectionTests.show(this, current().optString("name")));
+        block(card, tests, 44);
+        connect = button("Start proxy", EMBER, INK);
+        connect.setOnClickListener(v -> {
+            if (engine == null)
+                startProxy();
+            else
+                stopProxy();
+        });
+        block(card, connect, 48);
+        search.addTextChangedListener(new TextWatcher() {
+            public void afterTextChanged(Editable e) {
+                renderRows();
+            }
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            public void onTextChanged(CharSequence s, int start, int before, int count) {}
+        });
+        render();
+        setContentView(scroll);
     }
 
-    private void startProxy() {
-        String link = profile.getText().toString().trim();
-        if (!link.startsWith("vless://") || link.length() > 65536 || link.contains("\n")) {
-            profile.setError("Enter one VLESS share link");
-            return;
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+    private GradientDrawable surface(int color, int radius) {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(color);
+        bg.setCornerRadius(dp(radius));
+        return bg;
+    }
+    private LinearLayout column(int padding) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(padding), dp(padding), dp(padding), dp(padding));
+        return box;
+    }
+    private void block(LinearLayout parent, View view, int height) {
+        LinearLayout.LayoutParams params =
+            new LinearLayout.LayoutParams(-1, height < 0 ? height : dp(height));
+        params.topMargin = dp(14);
+        parent.addView(view, params);
+    }
+    private TextView label(String text, int size, int color, boolean bold) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextSize(size);
+        view.setTextColor(color);
+        if (bold)
+            view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        return view;
+    }
+    private Button button(String text, int bg, int fg) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setAllCaps(false);
+        b.setTextColor(fg);
+        b.setPadding(dp(14), 0, dp(14), 0);
+        b.setBackground(surface(bg, 8));
+        return b;
+    }
+    private JSONObject current() {
+        return profiles.optJSONObject(selected);
+    }
+    private void renderRows() {
+        rows.removeAllViews();
+        String filter = search.getText().toString().toLowerCase(Locale.ROOT);
+        for (int i = 0; i < profiles.length(); i++) {
+            JSONObject p = profiles.optJSONObject(i);
+            String title = p.optString("name"), endpoint = p.optString("endpoint"),
+                   security = p.optString("security");
+            if (!(title + " " + endpoint + " " + security).toLowerCase(Locale.ROOT).contains(filter))
+                continue;
+            LinearLayout row = column(12);
+            row.addView(label(title, 17, INK, true));
+            row.addView(label(endpoint + "   ·   " + security, 14, MUTED, false));
+            row.setBackground(surface(i == selected ? 0xffdedede : CANVAS, 12));
+            final int index = i;
+            row.setOnClickListener(v -> {
+                if (engine != null)
+                    return;
+                selected = index;
+                getPreferences(MODE_PRIVATE).edit().putInt("selected", index).apply();
+                render();
+            });
+            row.setOnLongClickListener(v -> {
+                if (engine != null)
+                    return false;
+                new AlertDialog.Builder(this)
+                    .setTitle("Remove profile?")
+                    .setMessage(title)
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Remove",
+                        (dialog, which) -> {
+                            profiles.remove(index);
+                            if (selected > index || selected >= profiles.length())
+                                selected = Math.max(0, selected - 1);
+                            getPreferences(MODE_PRIVATE)
+                                .edit()
+                                .putString("profiles", profiles.toString())
+                                .putInt("selected", selected)
+                                .apply();
+                            render();
+                        })
+                    .show();
+                return true;
+            });
+            rows.addView(row);
         }
+    }
+    private void render() {
+        renderRows();
+        JSONObject p = current();
+        name.setText(p == null ? "No profile selected" : p.optString("name"));
+        details.setText(p == null ? "" : p.optString("security"));
+        address.setText(p == null ? ""
+                                  : "Server\n" + p.optString("endpoint")
+                    + (listening ? "\n\nSOCKS5 address\n127.0.0.1:2080" : ""));
+        status.setText(listening ? "●  Proxy listening"
+                : engine != null ? "●  Starting"
+                                 : "●  Proxy offline");
+        status.setTextColor(listening ? EMBER : 0xffbbbbbb);
+        tests.setVisibility(listening ? View.VISIBLE : View.GONE);
+        connect.setText(engine == null ? "Start proxy" : "Stop proxy");
+        connect.setEnabled(p != null);
+        add.setEnabled(engine == null);
+    }
+    private void importDialog() {
+        EditText field = new EditText(this);
+        field.setHint("VLESS links or subscription");
+        field.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                                 .setTitle("Import links")
+                                 .setView(field)
+                                 .setNegativeButton("Cancel", null)
+                                 .setPositiveButton("Import", null)
+                                 .create();
+        dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String text = field.getText().toString().trim();
+            if (text.isEmpty() || text.length() > 1048576) {
+                field.setError("Enter up to 1 MiB of VLESS links");
+                return;
+            }
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+            new Thread(() -> {
+                try {
+                    Process parser = new ProcessBuilder(
+                        new File(getApplicationInfo().nativeLibraryDir, "libvless_engine.so").getPath(),
+                        "import-profiles")
+                                         .start();
+                    try (OutputStream in = parser.getOutputStream()) {
+                        in.write(text.getBytes(StandardCharsets.UTF_8));
+                    }
+                    StringBuilder output = new StringBuilder();
+                    try (BufferedReader r = new BufferedReader(
+                             new InputStreamReader(parser.getInputStream(), StandardCharsets.UTF_8))) {
+                        String line;
+                        while ((line = r.readLine()) != null) output.append(line);
+                    }
+                    if (parser.waitFor() != 0)
+                        throw new IllegalArgumentException();
+                    JSONArray imported = new JSONArray(output.toString());
+                    runOnUiThread(() -> {
+                        if (!dialog.isShowing())
+                            return;
+                        if (imported.length() + profiles.length() > 128) {
+                            field.setError("Save up to 128 profiles");
+                            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
+                            return;
+                        }
+                        for (int i = 0; i < imported.length(); i++) {
+                            JSONObject entry = imported.optJSONObject(i);
+                            if (entry.optJSONArray("warnings").length() > 0)
+                                Toast
+                                    .makeText(
+                                        this, entry.optJSONArray("warnings").optString(0), Toast.LENGTH_LONG)
+                                    .show();
+                            profiles.put(entry);
+                        }
+                        getPreferences(MODE_PRIVATE)
+                            .edit()
+                            .putString("profiles", profiles.toString())
+                            .apply();
+                        render();
+                        dialog.dismiss();
+                    });
+                } catch (Exception e) {
+                    runOnUiThread(() -> {
+                        field.setError("Invalid VLESS link or subscription");
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
+                    });
+                }
+            }, "vless-import").start();
+        });
+    }
+    private void startProxy() {
+        if (current() == null)
+            return;
+        String link = current().optString("link");
         File binary = new File(getApplicationInfo().nativeLibraryDir, "libvless_engine.so");
         try {
-            Process child = new ProcessBuilder(binary.getPath(), "run", "--link", "-",
-                    "--listen", "127.0.0.1:2080").redirectErrorStream(true).start();
+            Process child =
+                new ProcessBuilder(binary.getPath(), "run", "--link", "-", "--listen", "127.0.0.1:2080")
+                    .redirectErrorStream(true)
+                    .start();
             engine = child;
-            connect.setText("Stop proxy");
-            status.setText("Starting proxy…");
+            render();
             new Thread(() -> supervise(child, link), "vless-proxy").start();
         } catch (Exception e) {
             status.setText("Could not launch the engine");
@@ -76,7 +325,10 @@ public final class ProxyActivity extends Activity {
                 while ((line = log.readLine()) != null) {
                     if (line.contains("vless-engine listening on ")) {
                         runOnUiThread(() -> {
-                            if (engine == child) status.setText("HTTP and SOCKS5 proxy at 127.0.0.1:2080");
+                            if (engine == child) {
+                                listening = true;
+                                render();
+                            }
                         });
                     }
                 }
@@ -88,7 +340,8 @@ public final class ProxyActivity extends Activity {
             runOnUiThread(() -> {
                 if (engine == child) {
                     engine = null;
-                    connect.setText("Start proxy");
+                    listening = false;
+                    render();
                     status.setText("Proxy stopped. Check the profile and local port.");
                 }
             });
@@ -100,11 +353,12 @@ public final class ProxyActivity extends Activity {
             engine.destroy();
             engine = null;
         }
-        connect.setText("Start proxy");
-        status.setText("Disconnected");
+        listening = false;
+        render();
     }
 
-    @Override protected void onDestroy() {
+    @Override
+    protected void onDestroy() {
         stopProxy();
         super.onDestroy();
     }

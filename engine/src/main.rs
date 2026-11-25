@@ -961,8 +961,37 @@ async fn run_ipc_loop() {
     }
 }
 
+/// Private pipe protocol used by the Android profile library.
+fn import_profiles() -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Read;
+    let mut text = String::new();
+    const LIMIT: u64 = 1024 * 1024;
+    io::stdin().take(LIMIT + 1).read_to_string(&mut text)?;
+    if text.len() as u64 > LIMIT {
+        return Err("subscription exceeds 1 MiB".into());
+    }
+    let profiles = vless_ipc::parse_profile_list(&text)?
+        .into_iter()
+        .map(|entry| {
+            let p = entry.profile;
+            serde_json::json!({"name":p.name,"endpoint":p.server_addr_display(),
+            "security":if p.security.is_reality() { "REALITY + Vision" } else { "TLS" },
+            "link":p.to_vless_link(), "warnings":entry.warnings})
+        })
+        .collect::<Vec<_>>();
+    serde_json::to_writer(io::stdout().lock(), &profiles)?;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() {
+    if std::env::args().skip(1).eq(["import-profiles"]) {
+        if import_profiles().is_err() {
+            eprintln!("Invalid VLESS link or subscription");
+            std::process::exit(2);
+        }
+        return;
+    }
     match parse_cli_args(std::env::args().skip(1)) {
         Ok(CliAction::Help(help_text)) => {
             print!("{help_text}");
