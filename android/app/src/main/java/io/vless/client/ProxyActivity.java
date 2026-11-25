@@ -23,6 +23,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -103,7 +104,7 @@ public final class ProxyActivity extends Activity {
                         return;
                     if (target == null)
                         importDialog(text);
-                    else
+                    else if (target.isEnabled())
                         target.setText(text);
                 });
             } catch (java.io.IOException | SecurityException error) {
@@ -476,7 +477,7 @@ public final class ProxyActivity extends Activity {
 
     private void importDialog(String initialText) {
         EditText field = new EditText(this);
-        field.setHint("VLESS links or subscription");
+        field.setHint("VLESS link or HTTPS subscription URL");
         field.setText(initialText);
         importField = field;
         field.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
@@ -488,7 +489,11 @@ public final class ProxyActivity extends Activity {
                                  .setNeutralButton("Choose file…", null)
                                  .setPositiveButton("Import", null)
                                  .create();
+        AtomicReference<Thread> worker = new AtomicReference<>();
         dialog.setOnDismissListener(ignored -> {
+            Thread active = worker.getAndSet(null);
+            if (active != null)
+                active.interrupt();
             if (importField == field)
                 importField = null;
         });
@@ -498,19 +503,38 @@ public final class ProxyActivity extends Activity {
                                        .addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), PICK_PROFILE_FILE));
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String text = field.getText().toString().trim();
-            if (text.isEmpty() || text.length() > 1048576) {
+            byte[] input = text.getBytes(StandardCharsets.UTF_8);
+            if (input.length == 0 || input.length > SubscriptionDownload.MAX_BYTES) {
                 field.setError("Enter up to 1 MiB of VLESS links");
                 return;
             }
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
-            new Thread(() -> {
+            Button importButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            Button chooseFile = dialog.getButton(AlertDialog.BUTTON_NEUTRAL);
+            field.setError(null);
+            field.setEnabled(false);
+            importButton.setEnabled(false);
+            chooseFile.setEnabled(false);
+            boolean subscription = text.regionMatches(true, 0, "https://", 0, 8);
+            if (subscription)
+                importButton.setText("Downloading…");
+            Thread task = new Thread(() -> {
+                Process parser = null;
+                String error = "Invalid VLESS link or subscription";
                 try {
-                    Process parser = new ProcessBuilder(
+                    byte[] content = input;
+                    if (subscription) {
+                        error = "Could not download the subscription";
+                        content = SubscriptionDownload.read(text);
+                        error = "Invalid VLESS link or subscription";
+                    }
+                    if (Thread.currentThread().isInterrupted())
+                        return;
+                    parser = new ProcessBuilder(
                         new File(getApplicationInfo().nativeLibraryDir, "libvless_engine.so").getPath(),
                         "import-profiles")
                                          .start();
                     try (OutputStream in = parser.getOutputStream()) {
-                        in.write(text.getBytes(StandardCharsets.UTF_8));
+                        in.write(content);
                     }
                     StringBuilder output = new StringBuilder();
                     try (BufferedReader r = new BufferedReader(
@@ -522,8 +546,12 @@ public final class ProxyActivity extends Activity {
                         throw new IllegalArgumentException();
                     JSONArray imported = new JSONArray(output.toString());
                     runOnUiThread(() -> {
-                        if (!dialog.isShowing())
+                        if (!dialog.isShowing() || isFinishing() || isDestroyed())
                             return;
+                        if (engine != null || vpnActive()) {
+                            field.setError("Disconnect before importing profiles");
+                            return;
+                        }
                         java.util.LinkedHashMap<String, JSONObject> merged = new java.util.LinkedHashMap<>();
                         for (int i = 0; i < profiles.length(); i++) {
                             JSONObject entry = profiles.optJSONObject(i);
@@ -535,12 +563,10 @@ public final class ProxyActivity extends Activity {
                         }
                         if (merged.size() > 128) {
                             field.setError("Save up to 128 profiles");
-                            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
                             return;
                         }
                         if (imported.length() == 0) {
                             field.setError("No profiles found");
-                            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
                             return;
                         }
                         JSONObject first = imported.optJSONObject(0);
@@ -562,12 +588,28 @@ public final class ProxyActivity extends Activity {
                         dialog.dismiss();
                     });
                 } catch (Exception e) {
+                    String message = e instanceof SubscriptionDownload.TooLarge
+                        ? "Import up to 1 MiB of VLESS links" : error;
                     runOnUiThread(() -> {
-                        field.setError("Invalid VLESS link or subscription");
-                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
+                        if (dialog.isShowing() && !isFinishing() && !isDestroyed())
+                            field.setError(message);
+                    });
+                } finally {
+                    if (parser != null)
+                        parser.destroy();
+                    worker.compareAndSet(Thread.currentThread(), null);
+                    runOnUiThread(() -> {
+                        if (!dialog.isShowing() || isFinishing() || isDestroyed())
+                            return;
+                        field.setEnabled(true);
+                        importButton.setText("Import");
+                        importButton.setEnabled(true);
+                        chooseFile.setEnabled(true);
                     });
                 }
-            }, "vless-import").start();
+            }, "vless-import");
+            worker.set(task);
+            task.start();
         });
     }
     private void startProxy() {
