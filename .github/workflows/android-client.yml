@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - uses: android-actions/setup-android@v3
       - name: Build ARM64 engine
         run: |
           sdkmanager "ndk;27.3.13750724"
