@@ -8,6 +8,7 @@ struct SavedProfile: Codable, Identifiable {
 
 struct ProfilesScreen: View {
     @ObservedObject var proxy: ProxyController
+    @StateObject private var vpn = SystemVPN()
     @State private var query = ""
     @State private var importing = false
     @State private var testing = false
@@ -23,7 +24,7 @@ struct ProfilesScreen: View {
                     Spacer()
                     Button("+ Import links") { input = ""; importing = true }
                         .buttonStyle(.borderedProminent).tint(ink)
-                        .disabled(proxy.running || proxy.busy)
+                        .disabled(proxy.running || proxy.busy || vpn.active || vpn.busy)
                 }
                 HStack {
                     Image(systemName: "magnifyingglass")
@@ -48,7 +49,7 @@ struct ProfilesScreen: View {
                         .padding(12).background(proxy.active?.link == item.link ? Color(white: 0.87) : .clear,
                                                 in: RoundedRectangle(cornerRadius: 12))
                     }
-                    .buttonStyle(.plain).disabled(proxy.running || proxy.busy)
+                    .buttonStyle(.plain).disabled(proxy.running || proxy.busy || vpn.active || vpn.busy)
                     .contextMenu { Button("Remove profile", role: .destructive) { proxy.remove(item) } }
                 }
                 VStack(alignment: .leading, spacing: 14) {
@@ -67,7 +68,10 @@ struct ProfilesScreen: View {
                         }
                         Button(proxy.running ? "Stop proxy" : "Start proxy") { proxy.toggle() }
                             .buttonStyle(.borderedProminent).tint(proxy.running ? Color(white: 0.2) : accent)
-                            .disabled(proxy.busy)
+                            .disabled(proxy.busy || vpn.active || vpn.busy)
+                        Button(vpn.active ? "Disconnect VPN" : "Connect VPN") { vpn.toggle(profile) }
+                            .buttonStyle(.bordered).disabled(proxy.running || proxy.busy || vpn.busy)
+                        if let message = vpn.message { Text(message).font(.footnote) }
                     }
                 }
                 .padding(22).frame(maxWidth: .infinity, alignment: .leading)

@@ -20,6 +20,35 @@ pub unsafe extern "C" fn vless_proxy_start(link: *const c_char, port: u16) -> i3
     let Some(imported) = link.to_str().ok().and_then(|s| parse_vless_link(s).ok()) else {
         return 1;
     };
+    start_engine(EngineConfig::new_mixed_proxy(
+        imported.profile,
+        ([127, 0, 0, 1], port).into(),
+    ))
+}
+
+/// Starts the packet engine on a borrowed datagram socket. EngineHandle duplicates the descriptor.
+///
+/// # Safety
+/// The caller must retain a valid C string and an open socket until this call returns.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vless_packet_start(link: *const c_char, fd: i32) -> i32 {
+    if link.is_null() || fd < 0 {
+        return 1;
+    }
+    let link = unsafe { CStr::from_ptr(link) };
+    let Some(imported) = link.to_str().ok().and_then(|s| parse_vless_link(s).ok()) else {
+        return 1;
+    };
+    start_engine(EngineConfig::new_tun(
+        imported.profile,
+        fd,
+        false,
+        false,
+        None,
+    ))
+}
+
+fn start_engine(config: EngineConfig) -> i32 {
     let Ok(mut session) = SESSION.lock() else {
         return 3;
     };
@@ -33,7 +62,6 @@ pub unsafe extern "C" fn vless_proxy_start(link: *const c_char, port: u16) -> i3
     else {
         return 3;
     };
-    let config = EngineConfig::new_mixed_proxy(imported.profile, ([127, 0, 0, 1], port).into());
     let Ok((handle, _)) = runtime.block_on(EngineHandle::start(config)) else {
         return 3;
     };
