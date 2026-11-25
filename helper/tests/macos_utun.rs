@@ -72,3 +72,61 @@ fn configured_utun_delivers_ipv4_udp_packet() {
         }
     }
 }
+
+#[test]
+#[ignore = "requires permission to install a macOS host route"]
+fn journal_recovery_removes_native_host_route() {
+    use std::process::Command;
+    use vless_tray_helper::{
+        HelperJournal, JOURNAL_SCHEMA_VERSION, RouteAddResult, RouteDestination, RouteSpec,
+        RouteTarget, UtunConfig, recover_if_present, save_journal,
+    };
+
+    let backend = MacosSystemBackend::new();
+    let (_fd, name) = backend.create_utun().unwrap();
+    backend
+        .configure_utun(&name, &UtunConfig::default())
+        .unwrap();
+
+    let destination = "192.0.2.211";
+    let route_interface = || {
+        let output = Command::new("/sbin/route")
+            .args(["-n", "get", destination])
+            .output()
+            .unwrap();
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("interface:").map(str::trim))
+            .map(str::to_owned)
+    };
+    let original_interface = route_interface();
+    let route = RouteSpec {
+        destination: RouteDestination::Host(destination.parse().unwrap()),
+        target: RouteTarget::Interface(name.clone()),
+    };
+    let state = tempfile::tempdir().unwrap();
+    let journal_path = state.path().join("helper-state.json");
+    save_journal(
+        &journal_path,
+        &HelperJournal::Tun {
+            version: JOURNAL_SCHEMA_VERSION,
+            utun_name: name.clone(),
+            v4_gateway: None,
+            v6_gateway: None,
+            dns_snapshots: vec![],
+            dns_resolver: "192.0.2.53".parse().unwrap(),
+            server_ips: vec!["192.0.2.1".parse().unwrap()],
+            bypass_cidrs: vec![],
+            routes: vec![route.clone()],
+        },
+    )
+    .unwrap();
+    assert_eq!(backend.add_route(&route).unwrap(), RouteAddResult::Added);
+    assert_eq!(route_interface().as_deref(), Some(name.as_str()));
+
+    assert!(recover_if_present(&backend, &journal_path).unwrap());
+    assert_eq!(route_interface(), original_interface);
+    assert!(!journal_path.exists());
+    assert!(!recover_if_present(&backend, &journal_path).unwrap());
+}
