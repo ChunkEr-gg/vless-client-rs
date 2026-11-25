@@ -15,6 +15,8 @@ struct ProfilesScreen: View {
     @State private var importing = false
     @State private var choosingFile = false
     @State private var testing = false
+    @State private var confirmingRemoval = false
+    @State private var profileToRemove: SavedProfile?
     @State private var input = ""
     @State private var subscriptionURL: URL?
     private let maxImportBytes = 1_048_576
@@ -75,7 +77,10 @@ struct ProfilesScreen: View {
                             Button("Move down") { proxy.move(item, by: 1) }
                                 .disabled(item.id == proxy.profiles.last?.id)
                         }
-                        Button("Remove profile", role: .destructive) { proxy.remove(item) }
+                        Button("Remove profile", role: .destructive) {
+                            profileToRemove = item
+                            confirmingRemoval = true
+                        }
                     }
                 }
                 VStack(alignment: .leading, spacing: 14) {
@@ -182,6 +187,15 @@ struct ProfilesScreen: View {
                 }
         }
         .sheet(isPresented: $testing) { ConnectionTestsView(profile: proxy.active?.name ?? "") }
+        .alert("Remove profile?", isPresented: $confirmingRemoval, presenting: profileToRemove) { profile in
+            Button("Cancel", role: .cancel) { profileToRemove = nil }
+            Button("Remove", role: .destructive) {
+                if !vpn.active && !vpn.busy { proxy.remove(profile) }
+                profileToRemove = nil
+            }
+        } message: { profile in
+            Text(profile.name)
+        }
     }
 
     private func importInput() {

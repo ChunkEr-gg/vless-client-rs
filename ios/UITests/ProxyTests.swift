@@ -2,6 +2,32 @@ import Darwin
 import XCTest
 
 final class ProxyTests: XCTestCase {
+    func testRemovingProfileRequiresConfirmation() {
+        let app = XCUIApplication()
+        app.launch()
+        app.buttons["+ Import links"].tap()
+        let field = app.secureTextFields["VLESS share link"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("vless://\(UUID().uuidString)@127.0.0.1:19443?security=tls&sni=example.com#RemovalFixture")
+        app.buttons["Import"].tap()
+
+        let row = app.buttons.matching(identifier: "saved-profile-row")
+            .matching(NSPredicate(format: "label CONTAINS %@", "RemovalFixture")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.press(forDuration: 1)
+        app.buttons["Remove profile"].tap()
+        let confirmation = app.alerts["Remove profile?"]
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        confirmation.buttons["Cancel"].tap()
+        XCTAssertTrue(row.exists)
+
+        row.press(forDuration: 1)
+        app.buttons["Remove profile"].tap()
+        confirmation.buttons["Remove"].tap()
+        XCTAssertFalse(row.exists)
+    }
+
     func testSelectedProfileSurvivesRelaunch() {
         let app = XCUIApplication()
         app.launch()
