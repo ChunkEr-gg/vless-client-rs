@@ -581,14 +581,20 @@ impl Desktop {
         {
             return Err("Use a single link when setting a label or TLS pin.".into());
         }
-        let next = form.editing.unwrap_or(self.book.profiles.len());
+        let keep_existing =
+            form.editing.is_none() && form.pin.trim().is_empty() && form.label.trim().is_empty();
         let mut book = self.book.clone();
         for (i, link) in std::iter::once(first).chain(links).enumerate() {
             let profile = SavedProfile::new(&form.label, link, &form.pin)
                 .map_err(|e| format!("Link {}: {e}", i + 1))?;
-            book.insert(profile, form.editing)?;
+            let existing = book.find_link(&profile.link);
+            if i == 0 {
+                book.selected = form.editing.or(existing).unwrap_or(book.profiles.len());
+            }
+            if !keep_existing || existing.is_none() {
+                book.insert(profile, form.editing)?;
+            }
         }
-        book.selected = next;
         self.save(book)?;
         self.query.clear();
         self.start_failed = false;

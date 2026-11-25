@@ -35,11 +35,18 @@ impl Default for Book {
 }
 
 impl Book {
+    pub fn find_link(&self, link: &str) -> Option<usize> {
+        let key = link.split('#').next();
+        self.profiles
+            .iter()
+            .position(|existing| existing.link.split('#').next() == key)
+    }
+
     pub fn insert(&mut self, profile: SavedProfile, replace: Option<usize>) -> Result<(), String> {
-        let key = profile.link.split('#').next();
-        if self.profiles.iter().enumerate().any(|(index, existing)| {
-            Some(index) != replace && existing.link.split('#').next() == key
-        }) {
+        if self
+            .find_link(&profile.link)
+            .is_some_and(|index| Some(index) != replace)
+        {
             return Err("This link is already saved.".into());
         }
         if let Some(i) = replace {
@@ -258,6 +265,10 @@ mod tests {
         let profile = SavedProfile::new("", uri, &pin).unwrap();
         book.insert(profile.clone(), None).unwrap();
         assert!(book.insert(profile, None).is_err());
+        assert_eq!(
+            book.find_link(&uri.replace("#Test%20server", "#Renamed")),
+            Some(0)
+        );
         let second = SavedProfile::new("", &uri.replace(":443?", ":8443?"), &pin).unwrap();
         book.insert(second, None).unwrap();
         book.selected = 1;
