@@ -47,11 +47,15 @@ public final class TunnelService extends VpnService {
         PendingIntent disconnect =
             PendingIntent.getService(this, 1, new Intent(this, TunnelService.class).setAction("stop"),
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        Intent openProfiles = new Intent(this, ProxyActivity.class)
+                                  .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent open = PendingIntent.getActivity(this, 0, openProfiles, PendingIntent.FLAG_IMMUTABLE);
         startForeground(1,
             new Notification.Builder(this, "vpn")
                 .setSmallIcon(android.R.drawable.ic_lock_lock)
                 .setContentTitle("VLESS VPN")
                 .setContentText(profileName)
+                .setContentIntent(open)
                 .setOngoing(true)
                 .addAction(android.R.drawable.ic_delete, "Disconnect", disconnect)
                 .build());
