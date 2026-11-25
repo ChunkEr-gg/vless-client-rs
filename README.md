@@ -1,7 +1,18 @@
-# vless-tray (`vless-client-rs`)
+# VLESS clients for reality-ktls
 
-A lightweight, privilege-separated macOS menu-bar VPN client built specifically
-for [`reality-ktls`](https://github.com/ChunkEr-gg/reality-ktls) servers.
+Download artifacts from a successful workflow run for the platform you want.
+
+| Platform | Artifact | How to open it |
+| --- | --- | --- |
+| macOS | [VLESS-Profiles-macOS](https://github.com/ChunkEr-gg/vless-client-rs/actions/workflows/desktop-profiles.yml) | Extract the download and open `VLESS Profiles.app` from the packaged ZIP. The app is ad hoc signed. |
+| Windows | [VLESS-Profiles-Windows](https://github.com/ChunkEr-gg/vless-client-rs/actions/workflows/desktop-profiles.yml) | Extract the packaged ZIP to a folder and launch `vless-desktop.exe`. Keep `reality-sing-box.exe` beside it. |
+| Android | [vless-client-android-arm64](https://github.com/ChunkEr-gg/vless-client-rs/actions/workflows/android-client.yml) | Extract and install the debug APK on an ARM64-compatible device. |
+| iOS Simulator | [VlessClient-iOS-Simulator](https://github.com/ChunkEr-gg/vless-client-rs/actions/workflows/ios-client.yml) | Extract the simulator app on an Apple Silicon Mac. With an iPhone simulator booted, run `xcrun simctl install booted VlessClient.app`. Physical devices require a separately signed device build. |
+
+## macOS menu-bar client
+
+The repository also includes a privilege-separated menu-bar VPN client for
+[`reality-ktls`](https://github.com/ChunkEr-gg/reality-ktls) servers.
 
 - **Two profile types** matching `reality-ktls`'s two listeners:
   - **`REALITY`**: VLESS + REALITY (`X25519MLKEM768` / `X25519` + Ed25519 HMAC) + `xtls-rprx-vision`, UDP over XUDP (`0x03`).
@@ -22,9 +33,7 @@ the full audit of removed modules, dependencies, and tests.
 
 ## Desktop Profiles
 
-Open `vless-desktop` from the Desktop Profiles artifact for Windows or macOS.
-Keep the adjacent `reality-sing-box` executable in the same directory. The
-Profiles window from reality-ktls draft PR #9 includes searchable profiles,
+The Profiles window from reality-ktls draft PR #9 includes searchable profiles,
 link import, a live connection card and Ping, Speed, URL and Country tests
 through the selected proxy. The macOS menu-bar client remains available.
 
