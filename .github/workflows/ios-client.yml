@@ -66,9 +66,13 @@ jobs:
             -derivedDataPath ios/device-build CODE_SIGNING_ALLOWED=NO archive
           app="$archive/Products/Applications/VlessClient.app"
           app_id=$(plutil -extract CFBundleIdentifier raw "$app/Info.plist")
-          tunnel_id=$(plutil -extract CFBundleIdentifier raw "$app/PlugIns/PacketTunnel.appex/Info.plist")
+          tunnel="$app/PlugIns/PacketTunnel.appex"
+          tunnel_id=$(plutil -extract CFBundleIdentifier raw "$tunnel/Info.plist")
           test "$tunnel_id" = "$app_id.tunnel"
-          for bundle in "$app" "$app/PlugIns/PacketTunnel.appex"; do
+          for key in CFBundleVersion CFBundleShortVersionString; do
+            test "$(plutil -extract "$key" raw "$app/Info.plist")" = "$(plutil -extract "$key" raw "$tunnel/Info.plist")"
+          done
+          for bundle in "$app" "$tunnel"; do
             executable=$(plutil -extract CFBundleExecutable raw "$bundle/Info.plist")
             test -x "$bundle/$executable"
             test "$(plutil -extract DTPlatformName raw "$bundle/Info.plist")" = iphoneos
