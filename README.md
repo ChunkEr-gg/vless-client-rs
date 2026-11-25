@@ -7,6 +7,7 @@ Download artifacts from a successful workflow run for the platform you want.
 | macOS | [VLESS-Profiles-macOS](https://github.com/ChunkEr-gg/vless-client-rs/actions/workflows/desktop-profiles.yml) | Extract the download and open `VLESS Profiles.app` from the packaged ZIP. The app is ad hoc signed. |
 | Windows | [VLESS-Profiles-Windows](https://github.com/ChunkEr-gg/vless-client-rs/actions/workflows/desktop-profiles.yml) | Extract the packaged ZIP to a folder and launch `vless-desktop.exe`. Keep `reality-sing-box.exe` beside it. |
 | Android | [vless-client-android-arm64](https://github.com/ChunkEr-gg/vless-client-rs/actions/workflows/android-client.yml) | Extract and install the debug APK on an ARM64-compatible device. |
+| iPhone | [VlessClient-iPhone-unsigned](https://github.com/ChunkEr-gg/vless-client-rs/actions/workflows/ios-client.yml) | Extract the device archive. Installation requires Apple signing and provisioning for both the app and its packet tunnel extension. |
 | iOS Simulator | [VlessClient-iOS-Simulator](https://github.com/ChunkEr-gg/vless-client-rs/actions/workflows/ios-client.yml) | Extract the simulator app on an Apple Silicon Mac. With an iPhone simulator booted, run `xcrun simctl install booted VlessClient.app`. Physical devices require a separately signed device build. |
 
 ## macOS menu-bar client

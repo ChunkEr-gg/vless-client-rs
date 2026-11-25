@@ -41,3 +41,22 @@ jobs:
             ios/VlessClient-simulator.zip
             ios/test-attachments/
           if-no-files-found: error
+      - name: Build iPhone archive with embedded packet tunnel
+        run: |
+          archive=ios/VlessClient-iPhone.xcarchive
+          xcodebuild -project ios/VlessClient.xcodeproj -scheme VlessClient -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$archive" \
+            -derivedDataPath ios/device-build CODE_SIGNING_ALLOWED=NO archive
+          app="$archive/Products/Applications/VlessClient.app"
+          for bundle in "$app" "$app/PlugIns/PacketTunnel.appex"; do
+            executable=$(plutil -extract CFBundleExecutable raw "$bundle/Info.plist")
+            test -x "$bundle/$executable"
+            test "$(plutil -extract DTPlatformName raw "$bundle/Info.plist")" = iphoneos
+            lipo -verify_arch arm64 "$bundle/$executable"
+          done
+          ditto -c -k --keepParent "$archive" ios/VlessClient-iPhone-unsigned.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VlessClient-iPhone-unsigned
+          path: ios/VlessClient-iPhone-unsigned.zip
+          if-no-files-found: error
