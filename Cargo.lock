@@ -4483,13 +4483,24 @@ dependencies = [
  "base64 0.22.1",
  "ipnetwork",
  "libc",
- "percent-encoding",
- "rustls-pki-types",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "uuid",
+ "vless-profile",
+]
+
+[[package]]
+name = "vless-profile"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "percent-encoding",
+ "rustls-pki-types",
+ "serde",
+ "thiserror 2.0.21",
  "url",
  "uuid",
 ]

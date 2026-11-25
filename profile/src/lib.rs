@@ -362,6 +362,43 @@ impl Profile {
     }
 }
 
+/// Imports a plaintext list of share links or a base64-encoded VLESS subscription body.
+/// Every link must validate before the caller receives any profiles.
+pub fn parse_profile_list(text: &str) -> Result<Vec<ImportOutcome>, ProfileError> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err(ProfileError::EmptyLink);
+    }
+    let decoded;
+    let links = if text.contains("://") {
+        text
+    } else {
+        let encoded: String = text.split_ascii_whitespace().collect();
+        let bytes = [
+            base64::engine::general_purpose::STANDARD,
+            STANDARD_NO_PAD,
+            base64::engine::general_purpose::URL_SAFE,
+            URL_SAFE_NO_PAD,
+        ]
+        .iter()
+        .find_map(|engine| engine.decode(&encoded).ok())
+        .ok_or_else(|| ProfileError::InvalidUrl("invalid subscription encoding".into()))?;
+        decoded = String::from_utf8(bytes).map_err(|_| {
+            ProfileError::InvalidUrl("subscription must contain UTF-8 links".into())
+        })?;
+        decoded.trim()
+    };
+    if links.is_empty() {
+        return Err(ProfileError::EmptyLink);
+    }
+    links
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(parse_vless_link)
+        .collect()
+}
+
 /// Parses and validates a `vless://` link into an [`ImportOutcome`].
 pub fn parse_vless_link(link: &str) -> Result<ImportOutcome, ProfileError> {
     let link = link.trim();
@@ -905,6 +942,27 @@ mod tests {
             parse_vless_link(&format!("{link}&%74ype=tcp")),
             Err(ProfileError::InvalidUrl(_))
         ));
+    }
+
+    #[test]
+    fn imports_plain_and_encoded_subscription_lists_atomically() {
+        let link = format!("vless://{SAMPLE_UUID}@example.com:443?security=tls&sni=example.com");
+        let list = format!("{link}#First\r\n\r\n{link}#Second");
+        for input in [
+            list.clone(),
+            URL_SAFE_NO_PAD.encode(&list),
+            base64::engine::general_purpose::STANDARD.encode(&list),
+        ] {
+            let imports = parse_profile_list(&input).unwrap();
+            assert_eq!(
+                imports
+                    .iter()
+                    .map(|entry| entry.profile.name.as_str())
+                    .collect::<Vec<_>>(),
+                ["First", "Second"]
+            );
+        }
+        assert!(parse_profile_list(&format!("{list}\nbad")).is_err());
     }
 
     fn sample_pbk() -> ([u8; 32], String) {

@@ -3,7 +3,7 @@
 
 pub mod engine_ipc;
 pub mod helper_ipc;
-pub mod profile;
+pub use vless_profile as profile;
 pub mod scm_rights;
 pub mod store;
 
@@ -22,8 +22,8 @@ pub use helper_ipc::{
 pub use profile::{
     DEFAULT_KTLS_ALPN, ImportOutcome, Profile, ProfileError, ProfileSecurity,
     TLS_VISION_PROBE_WARNING, VISION_FLOW, decode_public_key, decode_short_id,
-    format_sha256_pin_hex, parse_sha256_pin, parse_vless_link, validate_dns_name,
-    validate_server_host,
+    format_sha256_pin_hex, parse_profile_list, parse_sha256_pin, parse_vless_link,
+    validate_dns_name, validate_server_host,
 };
 pub use scm_rights::{
     async_recv_frame_with_fd, async_recv_helper_message, async_send_frame_with_fd,

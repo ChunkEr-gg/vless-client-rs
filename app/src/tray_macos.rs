@@ -25,7 +25,7 @@ use objc2_app_kit::{
 use objc2_foundation::{NSNotification, NSObjectProtocol};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 use uuid::Uuid;
-use vless_ipc::{AppConfig, ConfigStore, ConnectionMode, parse_vless_link, write_atomic_0600};
+use vless_ipc::{AppConfig, ConfigStore, ConnectionMode, parse_profile_list, write_atomic_0600};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
@@ -621,7 +621,7 @@ impl TrayApp {
             }
         };
 
-        let outcome = match parse_vless_link(raw_text.trim()) {
+        let imports = match parse_profile_list(raw_text.trim()) {
             Ok(ok) => ok,
             Err(err) => {
                 self.transient_notice = Some(format!("Clipboard import failed: {err}"));
@@ -631,14 +631,22 @@ impl TrayApp {
             }
         };
 
-        let new_id = outcome.profile.id;
-        let new_name = outcome.profile.name.clone();
+        let new_id = imports[0].profile.id;
+        let new_name = imports[0].profile.name.clone();
+        let first_warning = imports
+            .iter()
+            .flat_map(|entry| &entry.warnings)
+            .next()
+            .cloned();
+        let old_count = self.config.profiles.len();
         let prev_selected = self.config.selected_profile_id;
-        self.config.profiles.push(outcome.profile);
+        self.config
+            .profiles
+            .extend(imports.into_iter().map(|entry| entry.profile));
         self.config.selected_profile_id = Some(new_id);
 
         if let Err(err) = self.save_config() {
-            self.config.profiles.pop();
+            self.config.profiles.truncate(old_count);
             self.config.selected_profile_id = prev_selected;
             self.transient_notice = Some(format!("Failed saving imported profile: {err}"));
             let sup_state = self.supervisor.state();
@@ -646,7 +654,7 @@ impl TrayApp {
             return;
         }
 
-        self.transient_notice = if let Some(first_warn) = outcome.warnings.first() {
+        self.transient_notice = if let Some(first_warn) = first_warning {
             Some(format!("Imported \"{new_name}\" — Warning: {first_warn}"))
         } else {
             Some(format!("Imported and selected \"{new_name}\""))

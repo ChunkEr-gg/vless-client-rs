@@ -23,7 +23,7 @@ use vless_ipc::{
     AppConfig, BUILTIN_SYSTEM_PROXY_EXCEPTIONS, BUILTIN_TUN_BYPASS_CIDR_STRS, BypassEntry,
     ConfigError, ConfigStore, DEFAULT_DNS_RESOLVER, DEFAULT_KTLS_ALPN, DEFAULT_SYSTEM_PROXY_PORT,
     LogLevel, Profile, ProfileError, ProfileSecurity, decode_public_key, decode_short_id,
-    format_sha256_pin_hex, parse_bypass_entry, parse_sha256_pin, parse_vless_link,
+    format_sha256_pin_hex, parse_bypass_entry, parse_profile_list, parse_sha256_pin,
     validate_dns_name, validate_server_host, write_atomic_0600,
 };
 
@@ -870,39 +870,44 @@ impl SettingsState {
         }
     }
 
-    /// Imports a `vless://` share link, surfacing any [`ProfileError`] or non-fatal warnings
+    /// Imports a VLESS share link or subscription body, surfacing errors and warnings
     /// (including `TLS_VISION_PROBE_WARNING`) and persisting to `config.json` (`0600`).
-    pub fn import_vless_link(&mut self, raw_link: &str) -> Result<Uuid, ProfileError> {
+    pub fn import_vless_link(&mut self, raw_link: &str) -> Result<Uuid, String> {
         self.import_error = None;
         self.error_message = None;
 
-        let outcome = match parse_vless_link(raw_link) {
+        let imports = match parse_profile_list(raw_link) {
             Ok(ok) => ok,
             Err(err) => {
                 self.import_error = Some(err.to_string());
-                return Err(err);
+                return Err(err.to_string());
             }
         };
 
-        let profile_id = outcome.profile.id;
-        let profile_name = outcome.profile.name.clone();
-        self.config.profiles.push(outcome.profile);
+        let profile_id = imports[0].profile.id;
+        let count = imports.len();
+        let old_count = self.config.profiles.len();
+        let old_selection = self.config.selected_profile_id;
+        let mut warnings = Vec::new();
+        for entry in imports {
+            self.config.profiles.push(entry.profile);
+            warnings.extend(entry.warnings);
+        }
         if self.config.selected_profile_id.is_none() {
             self.config.selected_profile_id = Some(profile_id);
         }
 
         if let Err(save_err) = self.save_preserving_external_state(false, true) {
-            self.config.profiles.pop();
-            if self.config.profiles.is_empty() {
-                self.config.selected_profile_id = None;
-            }
-            self.error_message = Some(format!("Failed saving config: {save_err}"));
-            return Ok(profile_id);
+            self.config.profiles.truncate(old_count);
+            self.config.selected_profile_id = old_selection;
+            let message = format!("Failed saving config: {save_err}");
+            self.error_message = Some(message.clone());
+            return Err(message);
         }
 
         self.import_link_input.clear();
-        self.import_warnings = outcome.warnings;
-        self.status_message = Some(format!("Imported profile \"{profile_name}\""));
+        self.import_warnings = warnings;
+        self.status_message = Some(format!("Imported {count} profile(s)"));
         Ok(profile_id)
     }
 
@@ -910,7 +915,7 @@ impl SettingsState {
     pub fn import_from_system_clipboard(&mut self) -> Result<Uuid, String> {
         let text = read_clipboard_utf8()?;
         self.import_link_input = text.trim().to_string();
-        self.import_vless_link(&text).map_err(|err| err.to_string())
+        self.import_vless_link(&text)
     }
 
     /// Selects a profile by `id` and saves `config.json` (`0600`).
@@ -2091,7 +2096,7 @@ mod tests {
         let exported = state.export_profile_link(reality_id).unwrap();
         assert!(exported.starts_with("vless://"));
         assert_eq!(
-            parse_vless_link(&exported).unwrap().profile.name,
+            vless_ipc::parse_vless_link(&exported).unwrap().profile.name,
             "Manual REALITY"
         );
 
