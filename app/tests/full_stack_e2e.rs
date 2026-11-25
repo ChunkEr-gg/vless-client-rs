@@ -1173,6 +1173,8 @@ async fn full_stack_tun_mode_network_switch_recheck_and_sigkill_crash_recovery()
 #[tokio::test]
 #[ignore = "requires permission to configure a native utun"]
 async fn native_utun_http_transfer_through_pinned_vless() {
+    use std::os::fd::AsFd;
+    use vless_ipc::{async_recv_frame_with_fd, async_send_frame_with_fd};
     use vless_tray_helper::{MacosSystemBackend, SystemBackend, UtunConfig};
 
     let mut tasks = JoinSet::new();
@@ -1189,6 +1191,17 @@ async fn native_utun_http_transfer_through_pinned_vless() {
     let backend = MacosSystemBackend::new();
     let (fd, name) = backend.create_utun().unwrap();
     backend.configure_utun(&name, &config).unwrap();
+
+    let (helper_socket, engine_socket) = tokio::net::UnixStream::pair().unwrap();
+    async_send_frame_with_fd(&helper_socket, &name, Some(fd.as_fd()))
+        .await
+        .unwrap();
+    drop(fd);
+    let (received_name, received_fd) = async_recv_frame_with_fd::<String>(&engine_socket)
+        .await
+        .unwrap();
+    assert_eq!(received_name, name);
+    let received_fd = received_fd.expect("native utun descriptor over SCM_RIGHTS");
     let link = format!("vless://{TEST_UUID}@{server}?security=tls&sni=localhost&pcs={pin}");
     let runner_uid: u32 = std::env::var("SUDO_UID").unwrap().parse().unwrap();
     let runner_gid: u32 = std::env::var("SUDO_GID").unwrap().parse().unwrap();
@@ -1200,7 +1213,7 @@ async fn native_utun_http_transfer_through_pinned_vless() {
         .gid(runner_gid)
         .uid(runner_uid)
         .args(["run", "--link", &link, "--tun-fd", "0"])
-        .stdin(std::process::Stdio::from(fd))
+        .stdin(std::process::Stdio::from(received_fd))
         .kill_on_drop(true)
         .spawn()
         .unwrap();
