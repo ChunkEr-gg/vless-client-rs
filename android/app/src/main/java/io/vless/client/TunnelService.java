@@ -76,17 +76,24 @@ public final class TunnelService extends VpnService {
                                   .addRoute("0.0.0.0", 0)
                                   .addRoute("::", 0)
                                   .addDnsServer("1.1.1.1");
-            // The engine runs under our UID. Exclude that UID to keep its server sockets on the underlying
-            // network.
-            builder.addDisallowedApplication(getPackageName());
-            for (String id : getSharedPreferences("routing", MODE_PRIVATE)
-                                 .getStringSet("excluded", java.util.Collections.emptySet())) {
+            android.content.SharedPreferences prefs = getSharedPreferences("routing", MODE_PRIVATE);
+            boolean inclusive = prefs.getBoolean("inclusive", false);
+            if (!inclusive)
+                builder.addDisallowedApplication(getPackageName());
+            int installed = 0;
+            for (String id : prefs.getStringSet(inclusive ? "included" : "excluded", java.util.Collections.emptySet())) {
                 try {
-                    builder.addDisallowedApplication(id);
+                    if (inclusive)
+                        builder.addAllowedApplication(id);
+                    else
+                        builder.addDisallowedApplication(id);
+                    installed++;
                 } catch (android.content.pm.PackageManager.NameNotFoundException ignored) {
                     // An app can be uninstalled between selection and connection.
                 }
             }
+            if (inclusive && installed == 0)
+                throw new IOException("No selected VPN apps are installed");
             try (ParcelFileDescriptor tun = builder.establish()) {
                 if (tun == null || stopping)
                     throw new IOException("VPN permission was revoked");

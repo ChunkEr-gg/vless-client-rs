@@ -163,8 +163,16 @@ public final class ProxyActivity extends Activity {
         vpn = button("Connect VPN", 0xff333333, PAPER);
         vpn.setOnClickListener(view -> toggleVpn());
         block(card, vpn, 48);
-        bypass = button("Apps that bypass VPN", 0xff333333, PAPER);
-        bypass.setOnClickListener(view -> showBypassApps());
+        bypass = button("Per-app routing", 0xff333333, PAPER);
+        bypass.setOnClickListener(view -> {
+            String[] modes = {"Bypass selected apps", "Route only selected apps"};
+            boolean inclusive = getSharedPreferences("routing", MODE_PRIVATE).getBoolean("inclusive", false);
+            new AlertDialog.Builder(this).setTitle("Per-app routing")
+                .setSingleChoiceItems(modes, inclusive ? 1 : 0, (dialog, index) -> {
+                    dialog.dismiss();
+                    showRoutingApps(index == 1, modes[index]);
+                }).setNegativeButton("Cancel", null).show();
+        });
         block(card, bypass, 44);
         search.addTextChangedListener(new TextWatcher() {
             public void afterTextChanged(Editable e) {
@@ -293,7 +301,7 @@ public final class ProxyActivity extends Activity {
         vpn.setEnabled(engine == null && (p != null || active));
         vpn.setText(active ? "Disconnect VPN" : "Connect VPN");
     }
-    private void showBypassApps() {
+    private void showRoutingApps(boolean inclusive, String title) {
         android.content.pm.PackageManager manager = getPackageManager();
         android.content.Intent launcher = new android.content.Intent(android.content.Intent.ACTION_MAIN)
                            .addCategory(android.content.Intent.CATEGORY_LAUNCHER);
@@ -309,19 +317,26 @@ public final class ProxyActivity extends Activity {
             }
         }
         android.content.SharedPreferences prefs = getSharedPreferences("routing", MODE_PRIVATE);
-        java.util.Set<String> excluded = new java.util.HashSet<>(prefs.getStringSet("excluded", java.util.Collections.emptySet()));
+        String key = inclusive ? "included" : "excluded";
+        java.util.Set<String> selectedApps = new java.util.HashSet<>(prefs.getStringSet(key, java.util.Collections.emptySet()));
         boolean[] checked = new boolean[packages.size()];
         for (int i = 0; i < checked.length; i++)
-            checked[i] = excluded.contains(packages.get(i));
+            checked[i] = selectedApps.contains(packages.get(i));
         new AlertDialog.Builder(this)
-            .setTitle("Apps that bypass VPN")
+            .setTitle(title)
             .setMultiChoiceItems(labels.toArray(new String[0]), checked, (dialog, index, enabled) -> {
                 if (enabled)
-                    excluded.add(packages.get(index));
+                    selectedApps.add(packages.get(index));
                 else
-                    excluded.remove(packages.get(index));
+                    selectedApps.remove(packages.get(index));
             })
-            .setPositiveButton("Save", (dialog, which) -> prefs.edit().putStringSet("excluded", excluded).apply())
+            .setPositiveButton("Save", (dialog, which) -> {
+                if (inclusive && java.util.Collections.disjoint(selectedApps, packages)) {
+                    Toast.makeText(this, "Select at least one app to route through the VPN", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                prefs.edit().putStringSet(key, selectedApps).putBoolean("inclusive", inclusive).apply();
+            })
             .setNegativeButton("Cancel", null)
             .show();
     }
