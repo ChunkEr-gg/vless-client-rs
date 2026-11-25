@@ -57,6 +57,12 @@ struct ProfilesScreen: View {
                     .buttonStyle(.plain).disabled(proxy.running || proxy.busy || vpn.active || vpn.busy)
                     .contextMenu {
                         ShareLink(item: item.link) { Label("Share profile", systemImage: "square.and.arrow.up") }
+                        if query.isEmpty {
+                            Button("Move up") { proxy.move(item, by: -1) }
+                                .disabled(item.id == proxy.profiles.first?.id)
+                            Button("Move down") { proxy.move(item, by: 1) }
+                                .disabled(item.id == proxy.profiles.last?.id)
+                        }
                         Button("Remove profile", role: .destructive) { proxy.remove(item) }
                     }
                 }

@@ -73,6 +73,14 @@ final class ProxyController: ObservableObject {
             return true
         } catch { notice = "Could not save profiles."; return false }
     }
+    func move(_ entry: SavedProfile, by offset: Int) {
+        guard !running, !busy, let index = profiles.firstIndex(where: { $0.id == entry.id }),
+              profiles.indices.contains(index + offset) else { return }
+        var next = profiles
+        next.swapAt(index, index + offset)
+        do { try save(next, selected: active?.link) }
+        catch { notice = "Could not save the profile order." }
+    }
     func remove(_ entry: SavedProfile) {
         guard !running && !busy else { return }
         do { try save(profiles.filter { $0.link != entry.link }, selected: selection) }
