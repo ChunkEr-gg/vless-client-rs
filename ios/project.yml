@@ -21,3 +21,20 @@ targets:
       - name: Build Rust engine
         script: '"$SRCROOT/build-bridge.sh"'
         basedOnDependencyAnalysis: false
+  VlessClientUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: VlessClient
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.vless.client.uitests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  VlessClient:
+    build:
+      targets:
+        VlessClient: all
+    test:
+      targets: [VlessClientUITests]
