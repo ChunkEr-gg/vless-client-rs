@@ -57,7 +57,7 @@ pub fn peer_uid_from_fd(fd: BorrowedFd<'_>) -> io::Result<u32> {
         Ok(uid)
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         let mut cred = libc::ucred {
             pid: 0,
@@ -454,45 +454,35 @@ fn configure_nosigpipe(raw_sock: RawFd) {
 }
 
 fn send_flags() -> libc::c_int {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         libc::MSG_NOSIGNAL
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     {
         0
     }
 }
 
 fn recvmsg_flags() -> libc::c_int {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         libc::MSG_CMSG_CLOEXEC
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     {
         0
     }
 }
 
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+// CMSG_SPACE and CMSG_LEN return unsigned int. The header fields are either
+// socklen_t or size_t depending on the platform ABI.
 fn set_msg_controllen(msg: &mut libc::msghdr, bytes: libc::c_uint) {
-    msg.msg_controllen = bytes as usize;
+    msg.msg_controllen = bytes as _;
 }
 
-#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
-fn set_msg_controllen(msg: &mut libc::msghdr, bytes: libc::c_uint) {
-    msg.msg_controllen = bytes;
-}
-
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
 fn set_cmsg_len(cmsg: &mut libc::cmsghdr, bytes: libc::c_uint) {
-    cmsg.cmsg_len = bytes as usize;
-}
-
-#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
-fn set_cmsg_len(cmsg: &mut libc::cmsghdr, bytes: libc::c_uint) {
-    cmsg.cmsg_len = bytes;
+    cmsg.cmsg_len = bytes as _;
 }
 
 fn sendmsg_retry_eintr(
@@ -644,14 +634,14 @@ fn recvmsg_retry_eintr(raw_sock: RawFd, buf: &mut [u8]) -> io::Result<(usize, Op
 }
 
 fn ensure_cloexec(raw_fd: RawFd) -> io::Result<()> {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         // Already set atomically via MSG_CMSG_CLOEXEC, verify/keep no-op.
         let _ = raw_fd;
         Ok(())
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     {
         // SAFETY: `raw_fd` was just delivered by `recvmsg` via `SCM_RIGHTS` and is open.
         let flags = unsafe { libc::fcntl(raw_fd, libc::F_GETFD) };
