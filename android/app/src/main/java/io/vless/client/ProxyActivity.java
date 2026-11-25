@@ -252,27 +252,41 @@ public final class ProxyActivity extends Activity {
                 if (engine != null || vpnActive())
                     return false;
                 new AlertDialog.Builder(this)
-                    .setTitle("Remove profile?")
-                    .setMessage(title)
-                    .setNegativeButton("Cancel", null)
-                    .setPositiveButton("Remove",
-                        (dialog, which) -> {
-                            profiles.remove(index);
-                            if (selected > index || selected >= profiles.length())
-                                selected = Math.max(0, selected - 1);
-                            getPreferences(MODE_PRIVATE)
-                                .edit()
-                                .putString("profiles", profiles.toString())
-                                .putInt("selected", selected)
-                                .apply();
-                            render();
-                        })
-                    .show();
+                    .setTitle(title)
+                    .setItems(new String[] {"Share profile", "Remove profile"}, (dialog, action) -> {
+                        if (action == 0) {
+                            android.content.Intent share = new android.content.Intent(android.content.Intent.ACTION_SEND)
+                                .setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, p.optString("link"));
+                            startActivity(android.content.Intent.createChooser(share, "Share profile"));
+                        } else {
+                            confirmRemoval(index, title);
+                        }
+                    }).setNegativeButton("Cancel", null).show();
                 return true;
             });
             rows.addView(row);
         }
     }
+    private void confirmRemoval(int index, String title) {
+        new AlertDialog.Builder(this)
+            .setTitle("Remove profile?")
+            .setMessage(title)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Remove",
+                (dialog, which) -> {
+                    profiles.remove(index);
+                    if (selected > index || selected >= profiles.length())
+                        selected = Math.max(0, selected - 1);
+                    getPreferences(MODE_PRIVATE)
+                        .edit()
+                        .putString("profiles", profiles.toString())
+                        .putInt("selected", selected)
+                        .apply();
+                    render();
+                })
+            .show();
+    }
+
     private void render() {
         renderRows();
         JSONObject p = current();

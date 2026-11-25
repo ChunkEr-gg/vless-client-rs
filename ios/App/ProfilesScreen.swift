@@ -52,7 +52,10 @@ struct ProfilesScreen: View {
                     }
                     .accessibilityIdentifier("saved-profile-row")
                     .buttonStyle(.plain).disabled(proxy.running || proxy.busy || vpn.active || vpn.busy)
-                    .contextMenu { Button("Remove profile", role: .destructive) { proxy.remove(item) } }
+                    .contextMenu {
+                        ShareLink(item: item.link) { Label("Share profile", systemImage: "square.and.arrow.up") }
+                        Button("Remove profile", role: .destructive) { proxy.remove(item) }
+                    }
                 }
                 VStack(alignment: .leading, spacing: 14) {
                     Label(vpn.active ? (vpn.message ?? "VPN active") : proxy.running ? "Proxy listening" : proxy.busy ? "Working…" : "Proxy offline",
