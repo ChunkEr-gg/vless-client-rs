@@ -20,6 +20,10 @@ struct ProfilesScreen: View {
     private let accent = Color(red: 1, green: 0.21, blue: 0.09)
 
     var body: some View {
+        let filter = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matches = proxy.profiles.filter {
+            filter.isEmpty || [$0.name, $0.endpoint, $0.security].joined(separator: " ").localizedCaseInsensitiveContains(filter)
+        }
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
@@ -34,9 +38,11 @@ struct ProfilesScreen: View {
                     TextField("Search profiles", text: $query)
                 }
                 .padding(12).background(.white, in: RoundedRectangle(cornerRadius: 10))
-                ForEach(proxy.profiles.filter {
-                    query.isEmpty || [$0.name, $0.endpoint, $0.security].joined(separator: " ").localizedCaseInsensitiveContains(query)
-                }) { item in
+                if !filter.isEmpty && matches.isEmpty {
+                    Text("No matching profiles").foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                }
+                ForEach(matches) { item in
                     Button {
                         proxy.select(item)
                     } label: {
@@ -57,7 +63,7 @@ struct ProfilesScreen: View {
                     .buttonStyle(.plain).disabled(proxy.running || proxy.busy || vpn.active || vpn.busy)
                     .contextMenu {
                         ShareLink(item: item.link) { Label("Share profile", systemImage: "square.and.arrow.up") }
-                        if query.isEmpty {
+                        if filter.isEmpty {
                             Button("Move up") { proxy.move(item, by: -1) }
                                 .disabled(item.id == proxy.profiles.first?.id)
                             Button("Move down") { proxy.move(item, by: 1) }

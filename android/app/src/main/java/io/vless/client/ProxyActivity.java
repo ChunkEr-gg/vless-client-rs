@@ -319,7 +319,7 @@ public final class ProxyActivity extends Activity {
     }
     private void renderRows() {
         rows.removeAllViews();
-        String filter = search.getText().toString().toLowerCase(Locale.ROOT);
+        String filter = search.getText().toString().trim().toLowerCase(Locale.ROOT);
         for (int i = 0; i < profiles.length(); i++) {
             JSONObject p = profiles.optJSONObject(i);
             String title = p.optString("name"), endpoint = p.optString("endpoint"),
@@ -365,6 +365,11 @@ public final class ProxyActivity extends Activity {
                 return true;
             });
             rows.addView(row);
+        }
+        if (!filter.isEmpty() && rows.getChildCount() == 0) {
+            TextView empty = label("No matching profiles", 14, MUTED, false);
+            empty.setGravity(android.view.Gravity.CENTER);
+            rows.addView(empty);
         }
     }
     private void moveProfile(int from, int to) {
