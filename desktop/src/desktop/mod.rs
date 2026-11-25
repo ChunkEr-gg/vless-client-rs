@@ -58,7 +58,6 @@ pub fn run() -> Result<(), String> {
 struct Desktop {
     store: Store,
     book: Book,
-    selected: usize,
     query: String,
     activity_open: bool,
     auto_start: bool,
@@ -85,7 +84,6 @@ impl Desktop {
             traffic: Traffic::default(),
             store,
             book,
-            selected: 0,
             query: String::new(),
             activity_open: false,
             tests: None,
@@ -123,7 +121,7 @@ impl Desktop {
     }
 
     fn start(&mut self, ctx: &egui::Context) {
-        let Some(profile) = self.book.profiles.get(self.selected) else {
+        let Some(profile) = self.book.profiles.get(self.book.selected) else {
             return;
         };
         self.start_failed = false;
@@ -243,15 +241,19 @@ impl Desktop {
                     continue;
                 }
                 visible = true;
-                let selected = index == self.selected;
+                let selected = index == self.book.selected;
                 if profile_row(ui, profile, selected, offline).clicked() {
                     next = Some(index);
                 }
             }
         });
-        if let Some(index) = next {
-            self.selected = index;
-            self.start_failed = false;
+        if let Some(index) = next.filter(|&index| index != self.book.selected) {
+            let mut book = self.book.clone();
+            book.selected = index;
+            match self.save(book) {
+                Ok(()) => self.start_failed = false,
+                Err(error) => self.log(error, true),
+            }
         }
         if !visible {
             ui.add_space(20.0);
@@ -313,7 +315,7 @@ impl Desktop {
                 let (dot, _) = ui.allocate_exact_size(Vec2::splat(8.0), egui::Sense::hover());
                 ui.painter().circle_filled(dot.center(), 4.0, state_color);
                 ui.label(semibold(state, 13.0, state_color));
-                if let Some(profile) = self.book.profiles.get(self.selected) {
+                if let Some(profile) = self.book.profiles.get(self.book.selected) {
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let trigger = theme::icon_button(
                             ui,
@@ -326,7 +328,7 @@ impl Desktop {
                             ui.set_min_width(132.0);
                             if ui.button("Edit profile").clicked() {
                                 self.dialog = Some(Dialog::Profile(ProfileForm {
-                                    editing: Some(self.selected),
+                                    editing: Some(self.book.selected),
                                     params: Some(params::Params::from_profile(profile)),
                                     label: profile.label.clone(),
                                     links: profile.link.clone(),
@@ -340,7 +342,7 @@ impl Desktop {
                                 .clicked()
                             {
                                 self.dialog = Some(Dialog::Remove {
-                                    index: self.selected,
+                                    index: self.book.selected,
                                     error: String::new(),
                                 });
                                 ui.close();
@@ -352,7 +354,7 @@ impl Desktop {
         );
 
         top.add_space(30.0);
-        let Some(profile) = self.book.profiles.get(self.selected) else {
+        let Some(profile) = self.book.profiles.get(self.book.selected) else {
             top.label(semibold("No profile selected", 31.0, NIGHT_TEXT));
             let mut footer = region(
                 ui,
@@ -530,9 +532,8 @@ impl Desktop {
                 Dialog::Remove { index, .. } => {
                     let mut book = self.book.clone();
                     book.profiles.remove(*index);
-                    let next = (*index).min(book.profiles.len().saturating_sub(1));
+                    book.selected = (*index).min(book.profiles.len().saturating_sub(1));
                     self.save(book).map(|()| {
-                        self.selected = next;
                         self.start_failed = false;
                     })
                 }
@@ -583,8 +584,8 @@ impl Desktop {
                 .map_err(|e| format!("Link {}: {e}", i + 1))?;
             book.insert(profile, form.editing)?;
         }
+        book.selected = next;
         self.save(book)?;
-        self.selected = next;
         self.query.clear();
         self.start_failed = false;
         Ok(())
@@ -662,13 +663,13 @@ impl eframe::App for Desktop {
         }
         self.show_dialog(&ctx);
         if let Some(panel) = &mut self.tests {
-            let close = match (self.listening, self.book.profiles.get(self.selected)) {
+            let close = match (self.listening, self.book.profiles.get(self.book.selected)) {
                 (Some(address), Some(profile)) => panel.show(&ctx, address, &profile.label),
                 _ => true,
             };
             if let Some((test, result)) = panel.completed.take() {
                 let mut book = self.book.clone();
-                if let Some(profile) = book.profiles.get_mut(self.selected) {
+                if let Some(profile) = book.profiles.get_mut(self.book.selected) {
                     profile.results[test] = result;
                     if let Err(e) = self.save(book) {
                         self.log(e, true);

@@ -17,6 +17,7 @@ const MAX_BOOK_SIZE: u64 = 4 * 1024 * 1024;
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Book {
+    pub selected: usize,
     pub listen: SocketAddr,
     pub profiles: Vec<SavedProfile>,
     pub(super) settings: super::settings::Settings,
@@ -25,6 +26,7 @@ pub struct Book {
 impl Default for Book {
     fn default() -> Self {
         Self {
+            selected: 0,
             listen: DEFAULT_LISTEN,
             settings: Default::default(),
             profiles: Vec::new(),
@@ -193,6 +195,7 @@ impl Store {
         }
         let book: Book = toml::from_str(&text).map_err(|_| "invalid desktop profile file")?;
         let mut checked = Book {
+            selected: book.selected.min(book.profiles.len().saturating_sub(1)),
             listen: parse_listen(&book.listen.to_string())?,
             settings: book.settings,
             profiles: Vec::new(),
@@ -255,6 +258,9 @@ mod tests {
         let profile = SavedProfile::new("", uri, &pin).unwrap();
         book.insert(profile.clone(), None).unwrap();
         assert!(book.insert(profile, None).is_err());
+        let second = SavedProfile::new("", &uri.replace(":443?", ":8443?"), &pin).unwrap();
+        book.insert(second, None).unwrap();
+        book.selected = 1;
         book.listen = "[::1]:0".parse().unwrap();
         store.save(&book).unwrap();
         let path = store.path.clone();
@@ -263,6 +269,7 @@ mod tests {
 
         let (_, restored) = Store::open_at(dir.path().into()).unwrap();
         assert_eq!(restored.listen, book.listen);
+        assert_eq!(restored.selected, 1);
         let profile = &restored.profiles[0];
         assert_eq!(profile.link, uri);
         assert_eq!(profile.label, "Test server");
