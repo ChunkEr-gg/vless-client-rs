@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SavedProfile: Codable, Identifiable {
     let name, endpoint, security, link: String
@@ -53,16 +54,24 @@ struct ProfilesScreen: View {
                     .contextMenu { Button("Remove profile", role: .destructive) { proxy.remove(item) } }
                 }
                 VStack(alignment: .leading, spacing: 14) {
-                    Label(proxy.running ? "Proxy listening" : proxy.busy ? "Working…" : "Proxy offline",
+                    Label(vpn.active ? (vpn.message ?? "VPN active") : proxy.running ? "Proxy listening" : proxy.busy ? "Working…" : "Proxy offline",
                           systemImage: "circle.fill")
-                        .font(.caption.bold()).foregroundStyle(proxy.running ? accent : Color.gray)
+                        .font(.caption.bold()).foregroundStyle(proxy.running || vpn.active ? accent : Color.gray)
                     Text(proxy.active?.name ?? "No profile selected").font(.title.bold())
                     if let profile = proxy.active {
                         Text(profile.security).foregroundStyle(.secondary)
                         Text(profile.endpoint).font(.body.monospacedDigit())
                         if proxy.running {
                             Button("Connection tests") { testing = true }.buttonStyle(.bordered)
-                            Text(proxy.status).font(.footnote.monospaced())
+                            HStack {
+                                Text(proxy.status).font(.footnote.monospaced())
+                                Spacer()
+                                Button {
+                                    UIPasteboard.general.string = "127.0.0.1:2080"
+                                } label: {
+                                    Image(systemName: "square.on.square")
+                                }.accessibilityLabel("Copy proxy address")
+                            }
                         } else if proxy.status != "Disconnected" {
                             Text(proxy.status).font(.footnote)
                         }
@@ -71,7 +80,7 @@ struct ProfilesScreen: View {
                             .disabled(proxy.busy || vpn.active || vpn.busy)
                         Button(vpn.active ? "Disconnect VPN" : "Connect VPN") { vpn.toggle(profile) }
                             .buttonStyle(.bordered).disabled(proxy.running || proxy.busy || vpn.busy)
-                        if let message = vpn.message { Text(message).font(.footnote) }
+                        if !vpn.active, let message = vpn.message { Text(message).font(.footnote) }
                     }
                 }
                 .padding(22).frame(maxWidth: .infinity, alignment: .leading)

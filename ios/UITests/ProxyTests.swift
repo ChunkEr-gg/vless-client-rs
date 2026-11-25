@@ -13,6 +13,7 @@ final class ProxyTests: XCTestCase {
         app.buttons["Import"].tap()
         app.buttons["Start proxy"].tap()
         XCTAssertTrue(app.staticTexts["HTTP and SOCKS5 proxy at 127.0.0.1:2080"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Copy proxy address"].exists)
         try negotiateSocks()
         app.buttons["Connection tests"].tap()
         XCTAssertTrue(app.buttons["Country"].waitForExistence(timeout: 5))
