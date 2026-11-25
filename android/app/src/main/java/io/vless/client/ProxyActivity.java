@@ -2,6 +2,7 @@ package io.vless.client;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -110,7 +111,7 @@ public final class ProxyActivity extends Activity {
         heading.setGravity(android.view.Gravity.CENTER_VERTICAL);
         heading.addView(label("Profiles", 30, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
         add = button("+  Import links", INK, PAPER);
-        add.setOnClickListener(v -> importDialog());
+        add.setOnClickListener(v -> importDialog(""));
         heading.addView(add);
         layout.addView(heading);
         search = new EditText(this);
@@ -183,6 +184,35 @@ public final class ProxyActivity extends Activity {
         });
         render();
         setContentView(scroll);
+        if (state == null)
+            reviewImport(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        reviewImport(intent);
+    }
+
+    private void reviewImport(Intent intent) {
+        String text;
+        if (Intent.ACTION_VIEW.equals(intent.getAction()) && "vless".equals(intent.getScheme())) {
+            text = intent.getDataString();
+        } else if (Intent.ACTION_SEND.equals(intent.getAction()) && "text/plain".equals(intent.getType())) {
+            CharSequence shared = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
+            text = shared == null ? null : shared.toString();
+        } else {
+            return;
+        }
+        if (text == null || text.isEmpty() || text.length() > 1048576) {
+            Toast.makeText(this, "Share up to 1 MiB of VLESS links", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (engine != null || vpnActive()) {
+            Toast.makeText(this, "Disconnect before importing profiles", Toast.LENGTH_LONG).show();
+            return;
+        }
+        importDialog(text);
     }
 
     private int dp(int value) {
@@ -355,9 +385,10 @@ public final class ProxyActivity extends Activity {
             .show();
     }
 
-    private void importDialog() {
+    private void importDialog(String initialText) {
         EditText field = new EditText(this);
         field.setHint("VLESS links or subscription");
+        field.setText(initialText);
         field.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
             | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         AlertDialog dialog = new AlertDialog.Builder(this)
