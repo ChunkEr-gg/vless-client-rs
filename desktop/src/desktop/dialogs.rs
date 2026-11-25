@@ -5,6 +5,7 @@ use eframe::egui::{
     Shadow, Stroke, TextEdit, TextStyle, Ui,
 };
 
+use super::subscription::Download;
 use super::theme::{ButtonStyle, DANGER, INK, LINE, MUTED, PAPER, button, semibold};
 
 const FIELD: Color32 = Color32::from_gray(246);
@@ -23,6 +24,7 @@ pub(super) struct ProfileForm {
     pub(super) links: String,
     pub(super) pin: String,
     pub(super) error: String,
+    pub(super) download: Option<Download>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -62,7 +64,7 @@ impl Dialog {
                     Dialog::Settings(form) => {
                         ui.label(semibold("Settings", 23.0, INK));
                         form.ui(ui);
-                        dialog_actions(ui, &form.error, "Save", ButtonStyle::Primary)
+                        dialog_actions(ui, &form.error, "Save", ButtonStyle::Primary, true)
                     }
                     Dialog::Remove { error, .. } => {
                         ui.label(semibold("Remove profile?", 23.0, INK));
@@ -76,7 +78,7 @@ impl Dialog {
                                 .color(MUTED),
                             );
                         }
-                        dialog_actions(ui, error, "Remove", ButtonStyle::Danger)
+                        dialog_actions(ui, error, "Remove", ButtonStyle::Danger, true)
                     }
                 }
             });
@@ -101,12 +103,21 @@ impl ProfileForm {
         ScrollArea::vertical()
             .id_salt("profile-fields")
             .max_height((ui.ctx().content_rect().height() - 180.0).max(120.0))
-            .show(ui, |ui| self.fields(ui, editing));
+            .show(ui, |ui| {
+                ui.add_enabled_ui(self.download.is_none(), |ui| self.fields(ui, editing));
+            });
         dialog_actions(
             ui,
             &self.error,
-            if editing { "Save" } else { "Import" },
+            if editing {
+                "Save"
+            } else if self.download.is_some() {
+                "Downloading…"
+            } else {
+                "Import"
+            },
             ButtonStyle::Primary,
+            self.download.is_none(),
         )
     }
 
@@ -145,9 +156,11 @@ impl ProfileForm {
             self.options(ui);
         } else {
             ui.label(
-                RichText::new("Paste one link per line or a base64 subscription.")
-                    .size(13.0)
-                    .color(MUTED),
+                RichText::new(
+                    "Paste VLESS links, a base64 subscription, or an HTTPS subscription URL.",
+                )
+                .size(13.0)
+                .color(MUTED),
             );
             ui.add_space(5.0);
             CollapsingHeader::new(semibold("Profile options", 13.0, INK))
@@ -190,7 +203,13 @@ fn input(edit: TextEdit<'_>) -> TextEdit<'_> {
         .desired_width(f32::INFINITY)
 }
 
-fn dialog_actions(ui: &mut Ui, error: &str, apply: &str, appearance: ButtonStyle) -> Action {
+fn dialog_actions(
+    ui: &mut Ui,
+    error: &str,
+    apply: &str,
+    appearance: ButtonStyle,
+    enabled: bool,
+) -> Action {
     if !error.is_empty() {
         ui.add_space(4.0);
         ui.colored_label(DANGER, error);
@@ -199,7 +218,7 @@ fn dialog_actions(ui: &mut Ui, error: &str, apply: &str, appearance: ButtonStyle
     ui.separator();
     ui.add_space(5.0);
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        let apply = ui.add(button(apply, appearance));
+        let apply = ui.add_enabled(enabled, button(apply, appearance));
         let cancel = ui.add(button("Cancel", ButtonStyle::Secondary));
         if apply.clicked() {
             Action::Apply

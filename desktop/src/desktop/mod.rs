@@ -5,6 +5,7 @@ mod engine;
 mod params;
 mod settings;
 mod store;
+mod subscription;
 mod tests_panel;
 mod theme;
 mod worker;
@@ -537,6 +538,27 @@ impl Desktop {
         let Some(mut dialog) = self.dialog.take() else {
             return;
         };
+        if let Dialog::Profile(form) = &mut dialog
+            && let Some(download) = form.download.as_mut()
+        {
+            if let Some(result) = download.poll() {
+                form.download = None;
+                let original_links = form.links.clone();
+                let result = result.and_then(|links| {
+                    form.links = links;
+                    self.apply_profiles(form)
+                });
+                match result {
+                    Ok(()) => return,
+                    Err(message) => {
+                        form.links = original_links;
+                        form.error = message;
+                    }
+                }
+            } else {
+                ctx.request_repaint_after(Duration::from_millis(80));
+            }
+        }
         let label = match &dialog {
             Dialog::Remove { index, .. } => self
                 .book
@@ -551,7 +573,27 @@ impl Desktop {
         }
         if action == Action::Apply {
             let result = match &mut dialog {
-                Dialog::Profile(form) => self.apply_profiles(form),
+                Dialog::Profile(form) => {
+                    let value = form.links.trim();
+                    if form.editing.is_none()
+                        && value
+                            .get(..8)
+                            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("https://"))
+                    {
+                        match subscription::Download::start(value) {
+                            Ok(download) => {
+                                form.download = Some(download);
+                                form.error.clear();
+                                self.dialog = Some(dialog);
+                                ctx.request_repaint_after(Duration::from_millis(80));
+                                return;
+                            }
+                            Err(error) => Err(error),
+                        }
+                    } else {
+                        self.apply_profiles(form)
+                    }
+                }
                 Dialog::Settings(form) => {
                     let mut book = self.book.clone();
                     form.apply(&mut book).and_then(|()| self.save(book))
@@ -590,7 +632,7 @@ impl Desktop {
             book.insert(profile, Some(index))?;
             return self.save(book);
         }
-        if form.links.len() > 1024 * 1024 {
+        if form.links.len() as u64 > subscription::MAX_BYTES {
             return Err("Import up to 1 MiB of links at a time.".into());
         }
         let decoded =
