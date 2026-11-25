@@ -35,6 +35,8 @@ public final class ProxyActivity extends Activity {
     private LinearLayout rows;
     private EditText search;
     private TextView name, details, address;
+    private LinearLayout listenerRow;
+    private static final String LISTENER_ADDRESS = "127.0.0.1:2080";
     private Button tests, add, vpn, bypass;
     private static final int PICK_PROFILE_FILE = 25;
     private EditText importField;
@@ -188,6 +190,23 @@ public final class ProxyActivity extends Activity {
         card.addView(details);
         address = label("", 14, PAPER, false);
         block(card, address, -2);
+        listenerRow = new LinearLayout(this);
+        listenerRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView listener = label("SOCKS5 address\n" + LISTENER_ADDRESS, 14, PAPER, false);
+        listenerRow.addView(listener, new LinearLayout.LayoutParams(0, -2, 1));
+        android.widget.ImageButton copy = new android.widget.ImageButton(this);
+        copy.setImageResource(R.drawable.ic_copy);
+        copy.setContentDescription("Copy proxy address");
+        copy.setColorFilter(PAPER);
+        copy.setBackground(surface(0xff333333, 8));
+        copy.setOnClickListener(view -> {
+            android.content.ClipboardManager clipboard = getSystemService(android.content.ClipboardManager.class);
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("SOCKS5 address", LISTENER_ADDRESS));
+            if (android.os.Build.VERSION.SDK_INT < 33)
+                Toast.makeText(this, "Address copied", Toast.LENGTH_SHORT).show();
+        });
+        listenerRow.addView(copy, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        block(card, listenerRow, -2);
         tests = button("Connection tests", 0xff333333, PAPER);
         tests.setOnClickListener(v -> ConnectionTests.show(this, current().optString("name")));
         block(card, tests, 44);
@@ -361,8 +380,8 @@ public final class ProxyActivity extends Activity {
         name.setText(p == null ? "No profile selected" : p.optString("name"));
         details.setText(p == null ? "" : p.optString("security"));
         address.setText(p == null ? ""
-                                  : "Server\n" + p.optString("endpoint")
-                    + (listening ? "\n\nSOCKS5 address\n127.0.0.1:2080" : ""));
+                                  : "Server\n" + p.optString("endpoint"));
+        listenerRow.setVisibility(listening ? View.VISIBLE : View.GONE);
         status.setText(listening ? "●  Proxy listening"
                 : engine != null ? "●  Starting"
                                  : "●  Proxy offline");
