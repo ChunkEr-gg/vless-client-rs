@@ -298,13 +298,19 @@ impl Desktop {
     fn connection(&mut self, ui: &mut Ui, rect: Rect) {
         ui.painter().rect_filled(rect, 20, INK);
         let listening = self.listening.is_some();
+        let vpn = self.book.settings.tun;
         draw_dot_grid(ui.painter(), rect);
         let content = rect.shrink(26.0);
         let (state, state_color) = match &self.worker {
+            Some(worker) if worker.stopping() && vpn => ("Disconnecting VPN", NIGHT_MUTED),
             Some(worker) if worker.stopping() => ("Stopping", NIGHT_MUTED),
+            Some(_) if listening && vpn => ("VPN connected", EMBER),
             Some(_) if listening => ("Proxy listening", EMBER),
+            Some(_) if vpn => ("Connecting VPN", EMBER),
             Some(_) => ("Starting", EMBER),
+            None if self.start_failed && vpn => ("VPN start failed", FAILED_TEXT),
             None if self.start_failed => ("Start failed", FAILED_TEXT),
+            None if vpn => ("VPN disconnected", NIGHT_MUTED),
             None => ("Proxy offline", NIGHT_MUTED),
         };
         let mut top = region(ui, "connection-details", content);
@@ -411,7 +417,11 @@ impl Desktop {
 
         if top
             .add_enabled(listening, button("Connection tests", ButtonStyle::OnDark))
-            .on_disabled_hover_text("Start this proxy to run tests through it.")
+            .on_disabled_hover_text(if vpn {
+                "Connect the VPN to run connection tests."
+            } else {
+                "Start this proxy to run tests through it."
+            })
             .clicked()
         {
             self.tests = Some(tests_panel::Panel::default());
@@ -453,7 +463,10 @@ impl Desktop {
                 .add_enabled_ui(!worker.stopping(), |ui| {
                     ui.add_sized(
                         vec2(content.width(), 46.0),
-                        button("Stop proxy", ButtonStyle::OnDark),
+                        button(
+                            if vpn { "Disconnect VPN" } else { "Stop proxy" },
+                            ButtonStyle::OnDark,
+                        ),
                     )
                 })
                 .inner
@@ -464,7 +477,10 @@ impl Desktop {
         } else if footer
             .add_sized(
                 vec2(content.width(), 46.0),
-                button("Start proxy", ButtonStyle::Accent),
+                button(
+                    if vpn { "Connect VPN" } else { "Start proxy" },
+                    ButtonStyle::Accent,
+                ),
             )
             .clicked()
         {
@@ -710,7 +726,14 @@ impl eframe::App for Desktop {
             let was_listening = self.listening.take().is_some();
             self.copied = false;
             match worker.finish() {
-                Ok(()) => self.log("Proxy stopped", false),
+                Ok(()) => self.log(
+                    if self.book.settings.tun {
+                        "VPN disconnected"
+                    } else {
+                        "Proxy stopped"
+                    },
+                    false,
+                ),
                 Err(e) => {
                     self.start_failed = !was_listening;
                     self.log(e, true);
