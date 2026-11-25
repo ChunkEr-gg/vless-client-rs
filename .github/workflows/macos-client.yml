@@ -1,0 +1,32 @@
+name: macOS client
+
+on:
+  pull_request:
+  push:
+    branches: [claude/sweet-tesla-xhzpgw]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: macos-15
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and sign the release bundle
+        run: ./dist/package-app.sh --build
+      - name: Verify the packaged executables and signature
+        run: |
+          app="target/dist/VLESS Tray.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          "$app/Contents/MacOS/vless-tray" --version
+          "$app/Contents/MacOS/vless-tray" install-helper --dry-run
+          ditto -c -k --keepParent "$app" target/dist/VLESS-Tray-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VLESS-Tray-macOS
+          path: target/dist/VLESS-Tray-macOS.zip
+          if-no-files-found: error

@@ -139,7 +139,7 @@ if [ -z "${OUT_DIR}" ]; then
 fi
 
 if [ "${DO_BUILD}" -eq 1 ]; then
-    BUILD_ARGS=(build --bins)
+    BUILD_ARGS=(build --locked -p vless-tray -p vless-engine -p vless-tray-helper --bins)
     if [ "${PROFILE}" = "release" ]; then
         BUILD_ARGS+=(--release)
     elif [ "${PROFILE}" != "debug" ]; then
