@@ -34,7 +34,7 @@ public final class ProxyActivity extends Activity {
     private LinearLayout rows;
     private EditText search;
     private TextView name, details, address;
-    private Button tests, add, vpn;
+    private Button tests, add, vpn, bypass;
     private static final int VPN_CONSENT = 24;
     private final android.content.BroadcastReceiver vpnChanges = new android.content.BroadcastReceiver() {
         @Override
@@ -163,6 +163,9 @@ public final class ProxyActivity extends Activity {
         vpn = button("Connect VPN", 0xff333333, PAPER);
         vpn.setOnClickListener(view -> toggleVpn());
         block(card, vpn, 48);
+        bypass = button("Apps that bypass VPN", 0xff333333, PAPER);
+        bypass.setOnClickListener(view -> showBypassApps());
+        block(card, bypass, 44);
         search.addTextChangedListener(new TextWatcher() {
             public void afterTextChanged(Editable e) {
                 renderRows();
@@ -286,9 +289,43 @@ public final class ProxyActivity extends Activity {
         }
         connect.setEnabled(p != null && !active);
         add.setEnabled(engine == null && !active);
+        bypass.setEnabled(!active);
         vpn.setEnabled(engine == null && (p != null || active));
         vpn.setText(active ? "Disconnect VPN" : "Connect VPN");
     }
+    private void showBypassApps() {
+        android.content.pm.PackageManager manager = getPackageManager();
+        android.content.Intent launcher = new android.content.Intent(android.content.Intent.ACTION_MAIN)
+                           .addCategory(android.content.Intent.CATEGORY_LAUNCHER);
+        java.util.List<android.content.pm.ResolveInfo> apps = manager.queryIntentActivities(launcher, 0);
+        apps.sort(new android.content.pm.ResolveInfo.DisplayNameComparator(manager));
+        java.util.ArrayList<String> packages = new java.util.ArrayList<String>();
+        java.util.ArrayList<String> labels = new java.util.ArrayList<String>();
+        for (android.content.pm.ResolveInfo app : apps) {
+            String id = app.activityInfo.packageName;
+            if (!id.equals(getPackageName()) && !packages.contains(id)) {
+                packages.add(id);
+                labels.add(app.loadLabel(manager) + "\n" + id);
+            }
+        }
+        android.content.SharedPreferences prefs = getSharedPreferences("routing", MODE_PRIVATE);
+        java.util.Set<String> excluded = new java.util.HashSet<>(prefs.getStringSet("excluded", java.util.Collections.emptySet()));
+        boolean[] checked = new boolean[packages.size()];
+        for (int i = 0; i < checked.length; i++)
+            checked[i] = excluded.contains(packages.get(i));
+        new AlertDialog.Builder(this)
+            .setTitle("Apps that bypass VPN")
+            .setMultiChoiceItems(labels.toArray(new String[0]), checked, (dialog, index, enabled) -> {
+                if (enabled)
+                    excluded.add(packages.get(index));
+                else
+                    excluded.remove(packages.get(index));
+            })
+            .setPositiveButton("Save", (dialog, which) -> prefs.edit().putStringSet("excluded", excluded).apply())
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
     private void importDialog() {
         EditText field = new EditText(this);
         field.setHint("VLESS links or subscription");

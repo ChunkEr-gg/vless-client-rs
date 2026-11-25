@@ -79,6 +79,14 @@ public final class TunnelService extends VpnService {
             // The engine runs under our UID. Exclude that UID to keep its server sockets on the underlying
             // network.
             builder.addDisallowedApplication(getPackageName());
+            for (String id : getSharedPreferences("routing", MODE_PRIVATE)
+                                 .getStringSet("excluded", java.util.Collections.emptySet())) {
+                try {
+                    builder.addDisallowedApplication(id);
+                } catch (android.content.pm.PackageManager.NameNotFoundException ignored) {
+                    // An app can be uninstalled between selection and connection.
+                }
+            }
             try (ParcelFileDescriptor tun = builder.establish()) {
                 if (tun == null || stopping)
                     throw new IOException("VPN permission was revoked");
