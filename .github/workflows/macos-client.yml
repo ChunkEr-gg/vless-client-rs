@@ -24,6 +24,12 @@ jobs:
           test_binary=$(cargo test --locked --release -p vless-tray-helper --test macos_utun \
             --no-run --message-format=json | jq -ser 'map(select(.target.name == "macos_utun" and .target.kind == ["test"])) | .[0].executable // error("missing macos_utun test binary")')
           sudo -n "$test_binary" --ignored --test-threads=1
+      - name: Transfer HTTP through the native utun and pinned VLESS engine
+        run: |
+          set -o pipefail
+          test_binary=$(cargo test --locked --release -p vless-tray --test full_stack_e2e \
+            --no-run --message-format=json | jq -ser 'map(select(.target.name == "full_stack_e2e" and .target.kind == ["test"])) | .[0].executable // error("missing full_stack_e2e test binary")')
+          sudo -n "$test_binary" --ignored --exact native_utun_http_transfer_through_pinned_vless
       - name: Verify the packaged executables and signature
         run: |
           app="target/dist/VLESS Tray.app"

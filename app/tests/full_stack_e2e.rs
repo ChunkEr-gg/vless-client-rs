@@ -159,6 +159,7 @@ fn generate_self_signed_ktls_config(hostname: &str) -> (Arc<rustls::ServerConfig
 async fn spawn_inprocess_ktls_vless_server(
     sni: &str,
     expected_uuid: Uuid,
+    redirect: Option<(SocketAddr, SocketAddr)>,
     tasks: &mut JoinSet<()>,
 ) -> (SocketAddr, String, Arc<AtomicUsize>) {
     let (tls_cfg, sha256_pin) = generate_self_signed_ktls_config(sni);
@@ -181,9 +182,14 @@ async fn spawn_inprocess_ktls_vless_server(
                 let Ok(mut tls_stream) = acceptor.accept(tcp).await else {
                     return;
                 };
-                if handle_vless_tcp_stream(&mut tls_stream, &expected_uuid_bytes, &counter)
-                    .await
-                    .is_err()
+                if handle_vless_tcp_stream(
+                    &mut tls_stream,
+                    &expected_uuid_bytes,
+                    &counter,
+                    redirect,
+                )
+                .await
+                .is_err()
                 {
                     let _ = tls_stream.shutdown().await;
                 }
@@ -198,6 +204,7 @@ async fn handle_vless_tcp_stream<S>(
     stream: &mut S,
     expected_uuid: &[u8; 16],
     counter: &AtomicUsize,
+    redirect: Option<(SocketAddr, SocketAddr)>,
 ) -> io::Result<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -268,7 +275,12 @@ where
         }
     };
 
-    let mut upstream = TcpStream::connect(target_addr).await?;
+    let upstream_addr = match redirect {
+        Some((expected, origin)) if target_addr == expected => origin,
+        Some(_) => return Err(io::Error::other("unexpected tunnel destination")),
+        None => target_addr,
+    };
+    let mut upstream = TcpStream::connect(upstream_addr).await?;
     counter.fetch_add(1, Ordering::SeqCst);
 
     // VLESS v0 server response header: [version = 0x00, addon_len = 0x00]
@@ -545,7 +557,7 @@ async fn full_stack_system_proxy_connect_traffic_and_clean_disconnect() {
     let mut server_tasks = JoinSet::new();
     let parsed_uuid = Uuid::parse_str(TEST_UUID).expect("valid UUID");
     let (vless_addr, pcs_pin, tunneled_count) =
-        spawn_inprocess_ktls_vless_server("localhost", parsed_uuid, &mut server_tasks).await;
+        spawn_inprocess_ktls_vless_server("localhost", parsed_uuid, None, &mut server_tasks).await;
     let echo_addr = spawn_local_http_echo_server(&mut server_tasks).await;
 
     // 3. Configure EngineSupervisor + AppConfig (SystemProxy on ephemeral localhost port, custom
@@ -823,7 +835,7 @@ async fn full_stack_tun_mode_network_switch_recheck_and_sigkill_crash_recovery()
     let mut server_tasks = JoinSet::new();
     let parsed_uuid = Uuid::parse_str(TEST_UUID).expect("valid UUID");
     let (vless_addr, pcs_pin, _tunneled_count) =
-        spawn_inprocess_ktls_vless_server("localhost", parsed_uuid, &mut server_tasks).await;
+        spawn_inprocess_ktls_vless_server("localhost", parsed_uuid, None, &mut server_tasks).await;
 
     let vless_link = format!(
         "vless://{TEST_UUID}@localhost:{}?security=tls&sni=localhost&pcs={pcs_pin}#TunFullStack",
@@ -1155,4 +1167,58 @@ async fn full_stack_tun_mode_network_switch_recheck_and_sigkill_crash_recovery()
     let _ = helper_shutdown_tx.send(true);
     let _ = tokio::time::timeout(Duration::from_secs(2), helper_task).await;
     server_tasks.abort_all();
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+#[ignore = "requires permission to configure a native utun"]
+async fn native_utun_http_transfer_through_pinned_vless() {
+    use vless_tray_helper::{MacosSystemBackend, SystemBackend, UtunConfig};
+
+    let mut tasks = JoinSet::new();
+    let origin = spawn_local_http_echo_server(&mut tasks).await;
+    let config = UtunConfig::default();
+    let destination = SocketAddr::from((config.ipv4_peer, origin.port()));
+    let (server, pin, connections) = spawn_inprocess_ktls_vless_server(
+        "localhost",
+        TEST_UUID.parse().unwrap(),
+        Some((destination, origin)),
+        &mut tasks,
+    )
+    .await;
+    let backend = MacosSystemBackend::new();
+    let (fd, name) = backend.create_utun().unwrap();
+    backend.configure_utun(&name, &config).unwrap();
+    let link = format!("vless://{TEST_UUID}@{server}?security=tls&sni=localhost&pcs={pin}");
+    let runner_uid: u32 = std::env::var("SUDO_UID").unwrap().parse().unwrap();
+    let runner_gid: u32 = std::env::var("SUDO_GID").unwrap().parse().unwrap();
+    assert_ne!(
+        runner_uid, 0,
+        "run the test via sudo from a regular account"
+    );
+    let mut engine = tokio::process::Command::new(ensure_real_vless_engine_binary())
+        .gid(runner_gid)
+        .uid(runner_uid)
+        .args(["run", "--link", &link, "--tun-fd", "0"])
+        .stdin(std::process::Stdio::from(fd))
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+
+    tokio::time::timeout(Duration::from_secs(20), async {
+        let mut stream = TcpStream::connect(destination).await.unwrap();
+        let probe = Uuid::new_v4();
+        let request = format!("GET /native HTTP/1.1\r\nHost: fixture\r\nx-probe: {probe}\r\n\r\n");
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await.unwrap();
+        assert_eq!(
+            response.split_once("\r\n\r\n").unwrap().1,
+            format!("ECHO:GET /native HTTP/1.1|{probe}")
+        );
+        assert_eq!(connections.load(Ordering::SeqCst), 1);
+    })
+    .await
+    .expect("native utun HTTP transfer timed out");
+    engine.kill().await.unwrap();
 }
