@@ -2,6 +2,30 @@ import Darwin
 import XCTest
 
 final class ProxyTests: XCTestCase {
+    func testSelectedProfileSurvivesRelaunch() {
+        let app = XCUIApplication()
+        app.launch()
+        let detail = app.staticTexts["selected-profile-name"]
+        for name in ["Office", "Home"] {
+            app.buttons["+ Import links"].tap()
+            let field = app.secureTextFields["VLESS share link"]
+            field.tap()
+            field.typeText("vless://00000000-0000-4000-8000-000000000001@127.0.0.1:19443?security=tls&sni=example.com#" + name)
+            app.buttons["Import"].tap()
+            XCTAssertTrue(detail.waitForExistence(timeout: 5))
+            XCTAssertEqual(detail.label, name)
+        }
+        let rows = app.buttons.matching(identifier: "saved-profile-row")
+        for name in ["Office", "Home"] {
+            rows.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch.tap()
+            XCTAssertEqual(detail.label, name)
+        }
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(detail.waitForExistence(timeout: 5))
+        XCTAssertEqual(detail.label, "Home")
+    }
+
     func testStartNegotiateSocksAndStop() throws {
         let app = XCUIApplication()
         app.launch()

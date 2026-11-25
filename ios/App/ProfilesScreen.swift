@@ -50,6 +50,7 @@ struct ProfilesScreen: View {
                         .padding(12).background(proxy.active?.link == item.link ? Color(white: 0.87) : .clear,
                                                 in: RoundedRectangle(cornerRadius: 12))
                     }
+                    .accessibilityIdentifier("saved-profile-row")
                     .buttonStyle(.plain).disabled(proxy.running || proxy.busy || vpn.active || vpn.busy)
                     .contextMenu { Button("Remove profile", role: .destructive) { proxy.remove(item) } }
                 }
@@ -58,6 +59,7 @@ struct ProfilesScreen: View {
                           systemImage: "circle.fill")
                         .font(.caption.bold()).foregroundStyle(proxy.running || vpn.active ? accent : Color.gray)
                     Text(proxy.active?.name ?? "No profile selected").font(.title.bold())
+                        .accessibilityIdentifier("selected-profile-name")
                     if let profile = proxy.active {
                         Text(profile.security).foregroundStyle(.secondary)
                         Text(profile.endpoint).font(.body.monospacedDigit())
