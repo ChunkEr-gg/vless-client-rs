@@ -381,23 +381,39 @@ public final class ProxyActivity extends Activity {
                     runOnUiThread(() -> {
                         if (!dialog.isShowing())
                             return;
-                        if (imported.length() + profiles.length() > 128) {
+                        java.util.LinkedHashMap<String, JSONObject> merged = new java.util.LinkedHashMap<>();
+                        for (int i = 0; i < profiles.length(); i++) {
+                            JSONObject entry = profiles.optJSONObject(i);
+                            merged.putIfAbsent(entry.optString("link"), entry);
+                        }
+                        for (int i = 0; i < imported.length(); i++) {
+                            JSONObject entry = imported.optJSONObject(i);
+                            merged.put(entry.optString("link"), entry);
+                        }
+                        if (merged.size() > 128) {
                             field.setError("Save up to 128 profiles");
                             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
                             return;
                         }
+                        if (imported.length() == 0) {
+                            field.setError("No profiles found");
+                            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
+                            return;
+                        }
+                        JSONObject first = imported.optJSONObject(0);
+                        profiles = new JSONArray(merged.values());
+                        selected = new java.util.ArrayList<>(merged.keySet()).indexOf(first.optString("link"));
                         for (int i = 0; i < imported.length(); i++) {
-                            JSONObject entry = imported.optJSONObject(i);
-                            if (entry.optJSONArray("warnings").length() > 0)
-                                Toast
-                                    .makeText(
-                                        this, entry.optJSONArray("warnings").optString(0), Toast.LENGTH_LONG)
-                                    .show();
-                            profiles.put(entry);
+                            JSONArray warnings = imported.optJSONObject(i).optJSONArray("warnings");
+                            if (warnings != null && warnings.length() > 0) {
+                                Toast.makeText(this, warnings.optString(0), Toast.LENGTH_LONG).show();
+                                break;
+                            }
                         }
                         getPreferences(MODE_PRIVATE)
                             .edit()
                             .putString("profiles", profiles.toString())
+                            .putInt("selected", selected)
                             .apply();
                         render();
                         dialog.dismiss();
