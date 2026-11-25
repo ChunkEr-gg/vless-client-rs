@@ -36,6 +36,8 @@ public final class ProxyActivity extends Activity {
     private EditText search;
     private TextView name, details, address;
     private Button tests, add, vpn, bypass;
+    private static final int PICK_PROFILE_FILE = 25;
+    private EditText importField;
     private static final int VPN_CONSENT = 24;
     private final android.content.BroadcastReceiver vpnChanges = new android.content.BroadcastReceiver() {
         @Override
@@ -69,7 +71,43 @@ public final class ProxyActivity extends Activity {
         super.onActivityResult(request, result, data);
         if (request == VPN_CONSENT && result == RESULT_OK)
             launchVpn();
+        if (request == PICK_PROFILE_FILE && result == RESULT_OK && data != null && data.getData() != null)
+            readProfileFile(data.getData());
     }
+
+    private void readProfileFile(android.net.Uri uri) {
+        if (!"content".equals(uri.getScheme()))
+            return;
+        EditText target = importField;
+        new Thread(() -> {
+            try (java.io.InputStream stream = getContentResolver().openInputStream(uri)) {
+                if (stream == null)
+                    throw new java.io.IOException();
+                java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+                byte[] chunk = new byte[8192];
+                int count;
+                while ((count = stream.read(chunk)) != -1) {
+                    if (bytes.size() + count > 1048576)
+                        throw new java.io.IOException();
+                    bytes.write(chunk, 0, count);
+                }
+                String text = StandardCharsets.UTF_8.newDecoder()
+                                  .decode(java.nio.ByteBuffer.wrap(bytes.toByteArray())).toString();
+                runOnUiThread(() -> {
+                    if (isDestroyed() || isFinishing() || engine != null || vpnActive() || target != importField)
+                        return;
+                    if (target == null)
+                        importDialog(text);
+                    else
+                        target.setText(text);
+                });
+            } catch (java.io.IOException | SecurityException error) {
+                runOnUiThread(() -> Toast.makeText(this, "Choose a readable UTF-8 file up to 1 MiB",
+                                                   Toast.LENGTH_LONG).show());
+            }
+        }, "vless-read-profile-file").start();
+    }
+
     @Override
     protected void onStart() {
         super.onStart();
@@ -389,15 +427,24 @@ public final class ProxyActivity extends Activity {
         EditText field = new EditText(this);
         field.setHint("VLESS links or subscription");
         field.setText(initialText);
+        importField = field;
         field.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
             | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         AlertDialog dialog = new AlertDialog.Builder(this)
                                  .setTitle("Import links")
                                  .setView(field)
                                  .setNegativeButton("Cancel", null)
+                                 .setNeutralButton("Choose file…", null)
                                  .setPositiveButton("Import", null)
                                  .create();
+        dialog.setOnDismissListener(ignored -> {
+            if (importField == field)
+                importField = null;
+        });
         dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v ->
+            startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT)
+                                       .addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), PICK_PROFILE_FILE));
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String text = field.getText().toString().trim();
             if (text.isEmpty() || text.length() > 1048576) {
