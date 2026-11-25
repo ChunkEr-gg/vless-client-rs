@@ -1,0 +1,37 @@
+name: Desktop Profiles
+
+on:
+  pull_request:
+  push:
+    branches: [claude/sweet-tesla-xhzpgw]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  profiles:
+    strategy:
+      matrix:
+        os: [macos-15, windows-2022]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo build --locked --release -p vless-desktop
+      - name: Package desktop client and core
+        run: |
+          mkdir -p target/profiles
+          ext=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then ext=.exe; fi
+          ./desktop/desktop-core/build.sh "$PWD/target/profiles/reality-sing-box$ext"
+          cp "target/release/vless-desktop$ext" target/profiles/
+          cp desktop/desktop-core/LICENSE target/profiles/CORE-LICENSE
+          cp desktop/src/desktop/fonts/OFL.txt target/profiles/
+          tar -czf target/profiles.tar.gz -C target/profiles .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VLESS-Profiles-${{ runner.os }}
+          path: target/profiles.tar.gz

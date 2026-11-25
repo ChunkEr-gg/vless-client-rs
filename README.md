@@ -20,6 +20,17 @@ the full audit of removed modules, dependencies, and tests.
 
 ---
 
+## Desktop Profiles
+
+Open `vless-desktop` from the Desktop Profiles artifact for Windows or macOS.
+Keep the adjacent `reality-sing-box` executable in the same directory. The
+Profiles window from reality-ktls draft PR #9 includes searchable profiles,
+link import, a live connection card and Ping, Speed, URL and Country tests
+through the selected proxy. The macOS menu-bar client remains available.
+
+For a local build, run `cargo build --release -p vless-desktop` and
+`./desktop/desktop-core/build.sh` before launching `target/release/vless-desktop`.
+
 ## Windows SOCKS proxy
 
 The Windows x64 workflow builds the `vless-proxy-windows-x64` artifact. Extract
