@@ -34,8 +34,25 @@ jobs:
           cp "target/release/vless-desktop$ext" target/profiles/
           cp desktop/desktop-core/LICENSE target/profiles/CORE-LICENSE
           cp desktop/src/desktop/fonts/OFL.txt target/profiles/
-          tar -czf target/profiles.tar.gz -C target/profiles .
+          ./target/profiles/reality-sing-box$ext version
+      - name: Package Windows ZIP
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path target/profiles/* -DestinationPath target/VLESS-Profiles.zip
+      - name: Package macOS application
+        if: runner.os == 'macOS'
+        run: |
+          app="target/VLESS Profiles.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+          mv target/profiles/{vless-desktop,reality-sing-box} "$app/Contents/MacOS/"
+          mv target/profiles/{CORE-LICENSE,OFL.txt} "$app/Contents/Resources/"
+          cp desktop/Info.plist "$app/Contents/"
+          plutil -lint "$app/Contents/Info.plist"
+          codesign --force --sign - "$app/Contents/MacOS/reality-sing-box"
+          codesign --force --sign - "$app"
+          codesign --verify --deep --strict "$app"
+          ditto -c -k --keepParent "$app" target/VLESS-Profiles.zip
       - uses: actions/upload-artifact@v4
         with:
           name: VLESS-Profiles-${{ runner.os }}
-          path: target/profiles.tar.gz
+          path: target/VLESS-Profiles.zip
