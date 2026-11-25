@@ -69,7 +69,8 @@ def route_interface():
             "Get-NetRoute -PolicyStore ActiveStore -AddressFamily IPv4 | "
             f"Where-Object DestinationPrefix -eq '{TUN_PREFIX}' | "
             "Select-Object -ExpandProperty InterfaceAlias",
-        ], text=True, timeout=8)
+        # PowerShell and the NetTCPIP module can take well over 8 s to cold-start on hosted runners.
+        ], text=True, timeout=60)
         return result.strip()
     if sys.platform == "darwin":
         result = subprocess.check_output(
