@@ -35,6 +35,11 @@ impl Default for Book {
 }
 
 impl Book {
+    pub fn move_selected(&mut self, target: usize) {
+        self.profiles.swap(self.selected, target);
+        self.selected = target;
+    }
+
     pub fn find_link(&self, link: &str) -> Option<usize> {
         let key = link.split('#').next();
         self.profiles
@@ -297,7 +302,7 @@ mod tests {
         );
         let second = SavedProfile::new("", &uri.replace(":443?", ":8443?"), &pin).unwrap();
         book.insert(second, None).unwrap();
-        book.selected = 1;
+        book.move_selected(1);
         book.listen = "[::1]:0".parse().unwrap();
         store.save(&book).unwrap();
         let path = store.path.clone();
@@ -307,7 +312,8 @@ mod tests {
         let (_, restored) = Store::open_at(dir.path().into()).unwrap();
         assert_eq!(restored.listen, book.listen);
         assert_eq!(restored.selected, 1);
-        let profile = &restored.profiles[0];
+        let profile = &restored.profiles[restored.selected];
+        assert_eq!(restored.profiles[0].details.endpoint, "[::1]:8443");
         assert_eq!(profile.link, uri);
         assert_eq!(profile.label, "Test server");
         assert_eq!(profile.details.endpoint, "[::1]:443");

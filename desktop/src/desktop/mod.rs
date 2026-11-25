@@ -308,6 +308,7 @@ impl Desktop {
         };
         let mut top = region(ui, "connection-details", content);
         top.set_width(content.width());
+        let mut move_to = None;
         top.allocate_ui_with_layout(
             vec2(content.width(), 36.0),
             Layout::left_to_right(Align::Center),
@@ -329,6 +330,21 @@ impl Desktop {
                             if ui.button("Copy share link").clicked() {
                                 ui.ctx().copy_text(profile.share_link());
                                 ui.close();
+                            }
+                            if self.query.trim().is_empty() {
+                                let index = self.book.selected;
+                                for (label, target) in [
+                                    ("Move up", index.checked_sub(1)),
+                                    ("Move down", Some(index + 1)),
+                                ] {
+                                    if let Some(target) =
+                                        target.filter(|&i| i < self.book.profiles.len())
+                                        && ui.button(label).clicked()
+                                    {
+                                        move_to = Some(target);
+                                        ui.close();
+                                    }
+                                }
                             }
                             if ui.button("Edit profile").clicked() {
                                 self.dialog = Some(Dialog::Profile(ProfileForm {
@@ -357,6 +373,13 @@ impl Desktop {
             },
         );
 
+        if let Some(target) = move_to {
+            let mut book = self.book.clone();
+            book.move_selected(target);
+            if let Err(error) = self.save(book) {
+                self.log(error, true);
+            }
+        }
         top.add_space(30.0);
         let Some(profile) = self.book.profiles.get(self.book.selected) else {
             top.label(semibold("No profile selected", 31.0, NIGHT_TEXT));
