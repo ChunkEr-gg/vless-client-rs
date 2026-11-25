@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 struct SavedProfile: Codable, Identifiable {
     let name, endpoint, security, link: String
@@ -12,6 +13,7 @@ struct ProfilesScreen: View {
     @StateObject private var vpn = SystemVPN()
     @State private var query = ""
     @State private var importing = false
+    @State private var choosingFile = false
     @State private var testing = false
     @State private var input = ""
     private let ink = Color(white: 0.07)
@@ -123,6 +125,7 @@ struct ProfilesScreen: View {
                 Text("Import links").font(.title2.bold())
                 SecureField("VLESS share link", text: $input)
                     .textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
+                Button("Choose file…") { choosingFile = true }
                 if let notice = proxy.notice { Text(notice).font(.footnote) }
                 HStack {
                     Button("Import") { if proxy.add(input) { input = ""; importing = false } }
@@ -130,6 +133,26 @@ struct ProfilesScreen: View {
                     Button("Cancel") { importing = false }.buttonStyle(.bordered)
                 }
             }.padding(22).presentationDetents([.medium])
+                .fileImporter(isPresented: $choosingFile, allowedContentTypes: [.data]) { result in
+                    do {
+                        let url = try result.get()
+                        let scoped = url.startAccessingSecurityScopedResource()
+                        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                        let file = try FileHandle(forReadingFrom: url)
+                        defer { try? file.close() }
+                        let data = try file.read(upToCount: 1_048_577) ?? Data()
+                        guard data.count <= 1_048_576, let text = String(data: data, encoding: .utf8) else {
+                            proxy.notice = "Choose a UTF-8 text file up to 1 MiB."
+                            return
+                        }
+                        input = text
+                        proxy.notice = nil
+                    } catch let error as NSError {
+                        if error.domain != NSCocoaErrorDomain || error.code != NSUserCancelledError {
+                            proxy.notice = "Could not read the selected file."
+                        }
+                    }
+                }
         }
         .sheet(isPresented: $testing) { ConnectionTestsView(profile: proxy.active?.name ?? "") }
     }
