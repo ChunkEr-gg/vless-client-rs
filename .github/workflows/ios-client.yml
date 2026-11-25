@@ -56,7 +56,7 @@ jobs:
             executable=$(plutil -extract CFBundleExecutable raw "$bundle/Info.plist")
             test -x "$bundle/$executable"
             test "$(plutil -extract DTPlatformName raw "$bundle/Info.plist")" = iphoneos
-            lipo -verify_arch arm64 "$bundle/$executable"
+            lipo "$bundle/$executable" -verify_arch arm64
           done
           ditto -c -k --keepParent "$archive" ios/VlessClient-iPhone-unsigned.zip
       - uses: actions/upload-artifact@v4
