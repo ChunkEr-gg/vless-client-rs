@@ -2,6 +2,9 @@ name: VlessClient
 options:
   deploymentTarget:
     iOS: "16.0"
+settings:
+  base:
+    VLESS_BUNDLE_IDENTIFIER: io.vless.client
 targets:
   VlessClient:
     type: application
@@ -12,7 +15,7 @@ targets:
         embed: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.vless.client
+        PRODUCT_BUNDLE_IDENTIFIER: "$(VLESS_BUNDLE_IDENTIFIER)"
         CODE_SIGN_ENTITLEMENTS: Vless.entitlements
         INFOPLIST_FILE: AppInfo.plist
         GENERATE_INFOPLIST_FILE: YES
@@ -32,7 +35,7 @@ targets:
     sources: [Tunnel]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.vless.client.tunnel
+        PRODUCT_BUNDLE_IDENTIFIER: "$(VLESS_BUNDLE_IDENTIFIER).tunnel"
         CODE_SIGN_ENTITLEMENTS: Vless.entitlements
         INFOPLIST_FILE: TunnelInfo.plist
         SWIFT_OBJC_BRIDGING_HEADER: App/VlessMobile.h
@@ -52,7 +55,7 @@ targets:
       - target: VlessClient
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.vless.client.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: "$(VLESS_BUNDLE_IDENTIFIER).uitests"
         GENERATE_INFOPLIST_FILE: YES
 schemes:
   VlessClient:

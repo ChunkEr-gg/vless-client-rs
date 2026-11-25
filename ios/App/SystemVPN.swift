@@ -6,7 +6,7 @@ final class SystemVPN: ObservableObject {
     @Published private(set) var active = false
     @Published private(set) var busy = false
     @Published private(set) var message: String?
-    private let providerID = "io.vless.client.tunnel"
+    private let providerID = (Bundle.main.bundleIdentifier ?? "io.vless.client") + ".tunnel"
     private var manager: NETunnelProviderManager?
     private var observer: NSObjectProtocol?
 

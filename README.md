@@ -10,6 +10,24 @@ Download artifacts from a successful workflow run for the platform you want.
 | iPhone | [VlessClient-iPhone-unsigned](https://github.com/ChunkEr-gg/vless-client-rs/actions/workflows/ios-client.yml) | Extract the device archive. Installation requires Apple signing and provisioning for both the app and its packet tunnel extension. |
 | iOS Simulator | [VlessClient-iOS-Simulator](https://github.com/ChunkEr-gg/vless-client-rs/actions/workflows/ios-client.yml) | Extract the simulator app on an Apple Silicon Mac. With an iPhone simulator booted, run `xcrun simctl install booted VlessClient.app`. Physical devices require a separately signed device build. |
 
+## Build for a registered iPhone
+
+On a Mac with Xcode, XcodeGen, and Rustup, set `VLESS_BUNDLE_IDENTIFIER` in
+`ios/project.yml` to an identifier registered to your Apple Developer team.
+The app uses that identifier and the packet tunnel extension adds `.tunnel`.
+Enable the Network Extensions capability with Packet Tunnel for both explicit
+App IDs. See [Apple's Network Extensions setup](https://developer.apple.com/documentation/xcode/configuring-network-extensions/).
+
+```sh
+xcodegen generate --spec ios/project.yml
+open ios/VlessClient.xcodeproj
+```
+
+In **Signing & Capabilities**, select the same developer team and enable
+automatic signing for `VlessClient` and `PacketTunnel`. Select your registered
+iPhone as the run destination and run the `VlessClient` scheme. See
+[Apple's device setup instructions](https://developer.apple.com/documentation/xcode/running-your-app-on-simulated-or-physical-devices).
+
 ## macOS menu-bar client
 
 The repository also includes a privilege-separated menu-bar VPN client for
