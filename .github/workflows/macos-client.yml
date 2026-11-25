@@ -20,8 +20,9 @@ jobs:
         run: ./dist/package-app.sh --build
       - name: Verify kernel utun descriptor lifetime
         run: |
+          set -o pipefail
           test_binary=$(cargo test --locked --release -p vless-tray-helper --test macos_utun \
-            --no-run --message-format=json | jq -er 'select(.executable != null) | .executable' | head -1)
+            --no-run --message-format=json | jq -ser 'map(select(.target.name == "macos_utun" and .target.kind == ["test"])) | .[0].executable // error("missing macos_utun test binary")')
           sudo -n "$test_binary" --ignored --exact kernel_releases_utun_after_last_descriptor_closes
       - name: Verify the packaged executables and signature
         run: |
