@@ -18,6 +18,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build and sign the release bundle
         run: ./dist/package-app.sh --build
+      - name: Verify kernel utun descriptor lifetime
+        run: |
+          test_binary=$(cargo test --locked --release -p vless-tray-helper --test macos_utun \
+            --no-run --message-format=json | jq -er 'select(.executable != null) | .executable' | head -1)
+          sudo -n "$test_binary" --ignored --exact kernel_releases_utun_after_last_descriptor_closes
       - name: Verify the packaged executables and signature
         run: |
           app="target/dist/VLESS Tray.app"
