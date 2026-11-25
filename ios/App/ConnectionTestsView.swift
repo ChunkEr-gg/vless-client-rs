@@ -1,6 +1,14 @@
 import Network
 import SwiftUI
 
+private final class StatusProbeDelegate: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
 struct ConnectionTestsView: View {
     let profile: String
     @Environment(\.dismiss) var dismiss
@@ -52,7 +60,7 @@ struct ConnectionTestsView: View {
             config.connectionProxyDictionary = ["SOCKSEnable": 1, "SOCKSProxy": "127.0.0.1", "SOCKSPort": 2080]
         }
         config.timeoutIntervalForResource = 25
-        let session = URLSession(configuration: config)
+        let session = URLSession(configuration: config, delegate: tab == "URL" ? StatusProbeDelegate() : nil, delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         let target = tab == "URL" ? url : tab == "Speed" ? "https://speed.cloudflare.com/__down?bytes=5000000" : "https://www.cloudflare.com/cdn-cgi/trace"
         guard let endpoint = URL(string: target), endpoint.scheme?.lowercased() == "https", endpoint.host != nil else { throw URLError(.badURL) }
