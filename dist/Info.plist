@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleIdentifier</key>
+    <string>io.vless-tray.app</string>
+    <key>CFBundleName</key>
+    <string>VLESS Tray</string>
+    <key>CFBundleDisplayName</key>
+    <string>VLESS Tray</string>
+    <key>CFBundleExecutable</key>
+    <string>vless-tray</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleVersion</key>
+    <string>0.1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleSupportedPlatforms</key>
+    <array>
+        <string>MacOSX</string>
+    </array>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <!-- Menu-bar agent: hide Dock icon and main menu bar unless a window asks for focus. -->
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+</dict>
+</plist>

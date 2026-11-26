@@ -1,0 +1,129 @@
+diff --git a/box.go b/box.go
+index 3654fb6..7a3f476 100644
+--- a/box.go
++++ b/box.go
+@@ -66,0 +67 @@ type Options struct {
++	DesktopTraffic             bool
+@@ -243 +244 @@ func New(options Options) (*Box, error) {
+-	if needClashAPI || needAPIService || options.PlatformLogWriter != nil {
++	if options.DesktopTraffic || needClashAPI || needAPIService || options.PlatformLogWriter != nil {
+diff --git a/cmd/sing-box/cmd_run.go b/cmd/sing-box/cmd_run.go
+--- a/cmd/sing-box/cmd_run.go
++++ b/cmd/sing-box/cmd_run.go
+@@ -3,0 +4 @@
++	"bufio"
+@@ -4,0 +6 @@
++	"fmt"
+@@ -15,0 +18 @@
++	"github.com/sagernet/sing-box/common/trafficcontrol"
+@@ -47,0 +51,2 @@
++var desktopStdin *bufio.Reader
++
+@@ -53 +58,3 @@
+-	if path == "stdin" {
++	if path == "stdin" && desktopStdin != nil {
++		configContent, err = desktopStdin.ReadBytes('\n')
++	} else if path == "stdin" {
+@@ -141,0 +149 @@
++		DesktopTraffic:             os.Getenv("RK_DESKTOP_EVENTS") == "1",
+@@ -170,0 +179,24 @@
++	if os.Getenv("RK_DESKTOP_EVENTS") == "1" {
++		inbound, ok := instance.Inbound().Get("local")
++		bound, isSOCKS := inbound.(interface{ DesktopAddress() string })
++		if !ok || !isSOCKS {
++			cancel()
++			instance.Close()
++			return nil, nil, E.New("missing desktop SOCKS inbound")
++		}
++		fmt.Fprintln(os.Stdout, "READY", bound.DesktopAddress())
++		traffic := service.PtrFromContext[trafficcontrol.Manager](ctx)
++		go func() {
++			tick := time.NewTicker(time.Second)
++			defer tick.Stop()
++			for {
++				select {
++				case <-ctx.Done():
++					return
++				case <-tick.C:
++					up, down := traffic.Total()
++					fmt.Fprintln(os.Stdout, "BYTES", up, down)
++				}
++			}
++		}()
++	}
+@@ -174,0 +207,6 @@
++	if os.Getenv("RK_DESKTOP_PIPE") == "1" {
++		if len(configPaths) != 1 || configPaths[0] != "stdin" || len(configDirectories) != 0 {
++			return E.New("desktop pipe requires one stdin configuration")
++		}
++		desktopStdin = bufio.NewReader(os.Stdin)
++	}
+@@ -189,0 +228,9 @@
++	var desktopClosed <-chan struct{}
++	if desktopStdin != nil {
++		closed := make(chan struct{})
++		desktopClosed = closed
++		go func() {
++			_, _ = io.Copy(io.Discard, desktopStdin)
++			close(closed)
++		}()
++	}
+@@ -197 +244,8 @@
+-			osSignal := <-osSignals
++			var osSignal os.Signal
++			select {
++			case osSignal = <-osSignals:
++			case <-desktopClosed:
++			}
++			if osSignal == syscall.SIGHUP && desktopStdin != nil {
++				continue
++			}
+@@ -210,0 +265,3 @@
++				if desktopStdin != nil {
++					return err
++				}
+diff --git a/common/tls/client.go b/common/tls/client.go
+index 7b30368..8a1d700 100644
+--- a/common/tls/client.go
++++ b/common/tls/client.go
+@@ -82,0 +83,3 @@ func NewClientWithOptions(options ClientOptions) (Config, error) {
++	if options.Options.CertificateLeafSHA256 != "" && (!options.Options.Enabled || options.Options.Insecure || options.Options.Engine != "" || options.Options.Reality != nil || options.Options.UTLS != nil || len(options.Options.CertificatePublicKeySHA256) != 0 || options.Options.DisableSNI) {
++		return nil, E.New("certificate_leaf_sha256 requires standard verified Go TLS")
++	}
+diff --git a/common/tls/std_client.go b/common/tls/std_client.go
+index 80fa6cb..c365fbc 100644
+--- a/common/tls/std_client.go
++++ b/common/tls/std_client.go
+@@ -9,0 +10 @@ import (
++	"encoding/hex"
+@@ -145,0 +147,17 @@ func newSTDClient(ctx context.Context, logger logger.ContextLogger, serverAddres
++	if options.CertificateLeafSHA256 != "" {
++		pin, err := hex.DecodeString(options.CertificateLeafSHA256)
++		if err != nil || len(pin) != sha256.Size {
++			return nil, E.New("invalid TLS leaf pin")
++		}
++		tlsConfig.InsecureSkipVerify = true // Authenticate the presented leaf against the configured digest.
++		tlsConfig.VerifyConnection = func(state tls.ConnectionState) error {
++			if len(state.PeerCertificates) == 0 {
++				return E.New("missing TLS certificate")
++			}
++			actual := sha256.Sum256(state.PeerCertificates[0].Raw)
++			if !bytes.Equal(actual[:], pin) {
++				return E.New("TLS leaf certificate pin mismatch")
++			}
++			return nil
++		}
++	}
+diff --git a/option/tls.go b/option/tls.go
+index 5c807d6..a9f2f75 100644
+--- a/option/tls.go
++++ b/option/tls.go
+@@ -119,0 +120 @@ type OutboundTLSOptions struct {
++	CertificateLeafSHA256      string                              `json:"certificate_leaf_sha256,omitempty"`
+diff --git a/protocol/socks/inbound.go b/protocol/socks/inbound.go
+index b37fa9c..2c26a07 100644
+--- a/protocol/socks/inbound.go
++++ b/protocol/socks/inbound.go
+@@ -122,0 +123,2 @@ func (h *Inbound) streamUserPacketConnection(ctx context.Context, conn N.PacketC
++
++func (h *Inbound) DesktopAddress() string { return h.listener.TCPListener().Addr().String() }

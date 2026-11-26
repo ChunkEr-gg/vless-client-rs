@@ -1,0 +1,86 @@
+name: iOS client
+
+on:
+  pull_request:
+  push:
+    branches: [claude/sweet-tesla-xhzpgw]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-client-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  simulator:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Xcode project
+        run: |
+          command -v xcodegen || brew install xcodegen
+          xcodegen generate --spec ios/project.yml
+      - name: Build simulator client
+        run: |
+          xcodebuild -project ios/VlessClient.xcodeproj -scheme VlessClient -configuration Release \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            ARCHS=arm64 -derivedDataPath ios/build CODE_SIGNING_ALLOWED=NO build
+          app=ios/build/Build/Products/Release-iphonesimulator/VlessClient.app
+          test "$(plutil -extract CFBundleURLTypes.0.CFBundleURLSchemes.0 raw "$app/Info.plist")" = vless
+          test -x ios/build/Build/Products/Release-iphonesimulator/VlessClient.app/PlugIns/PacketTunnel.appex/PacketTunnel
+          ditto -c -k --keepParent ios/build/Build/Products/Release-iphonesimulator/VlessClient.app ios/VlessClient-simulator.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VlessClient-iOS-Simulator
+          path: ios/VlessClient-simulator.zip
+          if-no-files-found: error
+      - name: Exercise proxy on an iPhone simulator
+        timeout-minutes: 20
+        run: |
+          device=$(xcrun simctl list devices available -j | jq -er '[.devices[][] | select(.name | startswith("iPhone"))][0].udid')
+          xcodebuild -project ios/VlessClient.xcodeproj -scheme VlessClient -configuration Release \
+            -destination "platform=iOS Simulator,id=$device" -parallel-testing-enabled NO \
+            ARCHS=arm64 -derivedDataPath ios/build -resultBundlePath ios/ProxyTests.xcresult test
+          xcrun xcresulttool export attachments --path ios/ProxyTests.xcresult --output-path ios/test-attachments
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VlessClient-iOS-Test-Attachments
+          path: ios/test-attachments/
+          if-no-files-found: error
+
+  device-archive:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Xcode project
+        run: |
+          command -v xcodegen || brew install xcodegen
+          xcodegen generate --spec ios/project.yml
+      - name: Build iPhone archive with embedded packet tunnel
+        run: |
+          archive=ios/VlessClient-iPhone.xcarchive
+          xcodebuild -project ios/VlessClient.xcodeproj -scheme VlessClient -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$archive" \
+            -derivedDataPath ios/device-build CODE_SIGNING_ALLOWED=NO archive
+          app="$archive/Products/Applications/VlessClient.app"
+          app_id=$(plutil -extract CFBundleIdentifier raw "$app/Info.plist")
+          tunnel="$app/PlugIns/PacketTunnel.appex"
+          tunnel_id=$(plutil -extract CFBundleIdentifier raw "$tunnel/Info.plist")
+          test "$tunnel_id" = "$app_id.tunnel"
+          for key in CFBundleVersion CFBundleShortVersionString; do
+            test "$(plutil -extract "$key" raw "$app/Info.plist")" = "$(plutil -extract "$key" raw "$tunnel/Info.plist")"
+          done
+          for bundle in "$app" "$tunnel"; do
+            executable=$(plutil -extract CFBundleExecutable raw "$bundle/Info.plist")
+            test -x "$bundle/$executable"
+            test "$(plutil -extract DTPlatformName raw "$bundle/Info.plist")" = iphoneos
+            lipo "$bundle/$executable" -verify_arch arm64
+          done
+          ditto -c -k --keepParent "$archive" ios/VlessClient-iPhone-unsigned.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VlessClient-iPhone-unsigned
+          path: ios/VlessClient-iPhone-unsigned.zip
+          if-no-files-found: error

@@ -1,0 +1,115 @@
+use std::borrow::Cow;
+use std::collections::HashSet;
+use std::io;
+
+use super::invalid;
+
+pub fn normalize(name: &str) -> io::Result<Cow<'_, str>> {
+    let name = name.strip_suffix('.').unwrap_or(name);
+    if name.is_empty() || name.len() > 253 || !name.is_ascii() {
+        return Err(invalid(
+            "invalid hostname: use an ASCII A-label name of 1-253 bytes",
+        ));
+    }
+    if name.split('.').any(|label| {
+        label.is_empty()
+            || label.len() > 63
+            || !label
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+    }) {
+        return Err(invalid("invalid hostname label"));
+    }
+    Ok(if name.bytes().any(|c| c.is_ascii_uppercase()) {
+        Cow::Owned(name.to_ascii_lowercase())
+    } else {
+        Cow::Borrowed(name)
+    })
+}
+
+#[derive(Debug)]
+pub enum Names {
+    Small(Box<[Box<str>]>),
+    Indexed(HashSet<Box<str>>),
+}
+
+impl Names {
+    pub fn new(names: Vec<String>) -> io::Result<Self> {
+        let mut names = names
+            .into_iter()
+            .map(|s| {
+                normalize(&s)
+                    .map(|s| s.into_owned().into_boxed_str())
+                    .map_err(|e| invalid(format!("domain {s:?}: {e}")))
+            })
+            .collect::<io::Result<Vec<_>>>()?;
+        names.sort_unstable();
+        names.dedup();
+        Ok(if names.len() <= 16 {
+            Self::Small(names.into())
+        } else {
+            Self::Indexed(names.into_iter().collect())
+        })
+    }
+
+    pub fn matches(&self, name: &str, kind: DomainKind) -> bool {
+        let names = match self {
+            Self::Small(names) => {
+                return names.iter().any(|base| {
+                    (kind != DomainKind::Subdomains && &**base == name)
+                        || (kind != DomainKind::Exact
+                            && name.strip_suffix(&**base).is_some_and(|p| p.ends_with('.')))
+                });
+            }
+            Self::Indexed(names) => names,
+        };
+        if kind != DomainKind::Subdomains && names.contains(name) {
+            return true;
+        }
+        if kind == DomainKind::Exact {
+            return false;
+        }
+        name.match_indices('.')
+            .any(|(i, _)| names.contains(&name[i + 1..]))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DomainKind {
+    Exact,
+    Suffix,
+    Subdomains,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalization_and_boundaries() {
+        assert_eq!(normalize("ExAmPlE.com.").unwrap(), "example.com");
+        for bad in [
+            "",
+            ".",
+            "example.com..",
+            "*.x",
+            "a b",
+            "x/y",
+            "a\n",
+            "é.com",
+        ] {
+            assert!(normalize(bad).is_err(), "{bad:?}");
+        }
+        for count in [1, 16, 17] {
+            let names = Names::new((0..count).map(|i| format!("{i}.example")).collect()).unwrap();
+            assert!(names.matches("a.0.example", DomainKind::Suffix));
+            assert!(names.matches("0.example", DomainKind::Suffix));
+            assert!(!names.matches("0.example", DomainKind::Subdomains));
+            assert!(!names.matches("a0.example", DomainKind::Suffix));
+            assert!(names.matches("0.example", DomainKind::Exact));
+            assert!(!names.matches("a.0.example", DomainKind::Exact));
+            assert!(names.matches("a.b.0.example", DomainKind::Subdomains));
+            assert!(!names.matches("a0.example", DomainKind::Subdomains));
+        }
+    }
+}

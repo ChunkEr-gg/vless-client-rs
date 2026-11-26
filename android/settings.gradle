@@ -1,0 +1,21 @@
+pluginManagement {
+    repositories {
+        google()
+        if (System.getenv('GITHUB_ACTIONS') == 'true') {
+            maven { url = uri('https://maven-central.storage-download.googleapis.com/maven2/') }
+        }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositories {
+        google()
+        if (System.getenv('GITHUB_ACTIONS') == 'true') {
+            maven { url = uri('https://maven-central.storage-download.googleapis.com/maven2/') }
+        }
+        mavenCentral()
+    }
+}
+rootProject.name = 'VlessClient'
+include ':app'

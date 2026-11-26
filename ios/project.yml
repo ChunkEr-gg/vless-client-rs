@@ -1,0 +1,68 @@
+name: VlessClient
+options:
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    VLESS_BUNDLE_IDENTIFIER: io.vless.client
+    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "1.0"
+targets:
+  VlessClient:
+    type: application
+    platform: iOS
+    sources: [App]
+    dependencies:
+      - target: PacketTunnel
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "$(VLESS_BUNDLE_IDENTIFIER)"
+        CODE_SIGN_ENTITLEMENTS: Vless.entitlements
+        INFOPLIST_FILE: AppInfo.plist
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        SWIFT_OBJC_BRIDGING_HEADER: App/VlessMobile.h
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        OTHER_LDFLAGS: "$(inherited) -lvless_mobile -framework Security -framework SystemConfiguration -framework CoreFoundation -lresolv"
+        LIBRARY_SEARCH_PATHS: "$(inherited) $(BUILT_PRODUCTS_DIR)"
+        SWIFT_VERSION: "5.0"
+    preBuildScripts:
+      - name: Build Rust engine
+        script: '"$SRCROOT/build-bridge.sh"'
+        basedOnDependencyAnalysis: false
+  PacketTunnel:
+    type: app-extension
+    platform: iOS
+    sources: [Tunnel]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "$(VLESS_BUNDLE_IDENTIFIER).tunnel"
+        CODE_SIGN_ENTITLEMENTS: Vless.entitlements
+        INFOPLIST_FILE: TunnelInfo.plist
+        SWIFT_OBJC_BRIDGING_HEADER: App/VlessMobile.h
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        OTHER_LDFLAGS: "$(inherited) -lvless_mobile -framework Security -framework SystemConfiguration -framework CoreFoundation -lresolv"
+        LIBRARY_SEARCH_PATHS: "$(inherited) $(BUILT_PRODUCTS_DIR)"
+        SWIFT_VERSION: "5.0"
+    preBuildScripts:
+      - name: Build Rust packet engine
+        script: '"$SRCROOT/build-bridge.sh"'
+        basedOnDependencyAnalysis: false
+  VlessClientUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: VlessClient
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "$(VLESS_BUNDLE_IDENTIFIER).uitests"
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  VlessClient:
+    build:
+      targets:
+        VlessClient: all
+    test:
+      targets: [VlessClientUITests]

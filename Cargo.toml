@@ -1,0 +1,33 @@
+[workspace]
+members = [
+    "profile",
+    "desktop",
+    "proxy",
+    "ipc",
+    "engine",
+    "ios/bridge",
+    "helper",
+    "app",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.1"
+license = "MIT"
+publish = false
+
+[patch.crates-io]
+# REALITY patches on stable rustls: reality/0.23.46-f04804fa1334. Pins the patched commit, not the branch.
+rustls = { git = "https://github.com/cfal/rustls", rev = "f1a23c187330386e9e7f14a21dbae368034dc430" }
+# Preserves TCP ACK sequences during retransmission.
+smoltcp = { git = "https://github.com/cfal/smoltcp", rev = "7ef43e497f575cb0340a43e4f414f0f0b8760bf6" }
+
+[profile.dev]
+debug = 0
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+strip = true

@@ -1,0 +1,45 @@
+[package]
+name = "vless-tray"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "vless_tray"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vless-tray"
+path = "src/main.rs"
+
+[dependencies]
+vless-ipc = { path = "../ipc" }
+eframe = "0.33"
+egui = "0.33"
+winit = "0.30"
+arboard = "3.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+libc = "0.2"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+tray-icon = "0.21"
+muda = "0.17"
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSNotification", "NSString", "NSThread", "NSRunLoop"] }
+objc2-app-kit = { version = "0.3", features = ["NSWorkspace", "NSApplication", "NSRunningApplication"] }
+
+[dev-dependencies]
+aws-lc-rs = { version = "1", default-features = false }
+ipnetwork = { version = "0.21", features = ["serde"] }
+rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs", "pem"] }
+rustls = "=0.23.46"
+tempfile = "3"
+tokio = { version = "1", features = ["net", "signal", "test-util"] }
+tokio-rustls = "0.26"
+vless-tray-helper = { path = "../helper" }

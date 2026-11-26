@@ -1,0 +1,38 @@
+name: Windows SOCKS proxy
+
+on:
+  pull_request:
+  push:
+    branches: [claude/sweet-tesla-xhzpgw]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test --locked -p vless-profile
+      - run: cargo build --locked --release -p vless-proxy
+      - name: Bundle the verified Xray runtime
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'xray-windows.zip'
+          $url = 'https://github.com/XTLS/Xray-core/releases/download/v26.11.9/Xray-windows-64.zip'
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $expected = '1262522266337b824f07beb8e1375786b437683b3890105469088f8e17e0a69d'
+          if ((Get-FileHash -Algorithm SHA256 $archive).Hash -ne $expected) { throw 'Xray archive digest mismatch' }
+          Expand-Archive $archive "$env:RUNNER_TEMP/xray"
+          New-Item -ItemType Directory -Path target/windows-client
+          Copy-Item target/release/vless-proxy.exe,LICENSE target/windows-client
+          Copy-Item "$env:RUNNER_TEMP/xray/xray.exe" target/windows-client
+          Copy-Item "$env:RUNNER_TEMP/xray/LICENSE" target/windows-client/Xray-LICENSE
+      - name: Transfer a payload through the packaged Windows client
+        run: python proxy/tests/xray_roundtrip.py target/windows-client/vless-proxy.exe target/windows-client/xray.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vless-proxy-windows-x64
+          path: target/windows-client/
+          if-no-files-found: error
