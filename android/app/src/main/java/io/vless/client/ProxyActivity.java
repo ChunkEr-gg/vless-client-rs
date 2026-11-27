@@ -25,13 +25,13 @@ import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONArray;
-import org.json.JSONException;
 import org.json.JSONObject;
 
 public final class ProxyActivity extends Activity {
     private Process engine;
     private Button connect;
     private JSONArray profiles;
+    private ProfileStore store;
     private int selected;
     private LinearLayout rows;
     private EditText search;
@@ -117,6 +117,7 @@ public final class ProxyActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
+        if (profiles == null) return;
         android.content.IntentFilter filter = new android.content.IntentFilter(TunnelService.CHANGED);
         if (android.os.Build.VERSION.SDK_INT >= 33)
             registerReceiver(vpnChanges, filter, RECEIVER_NOT_EXPORTED);
@@ -126,7 +127,7 @@ public final class ProxyActivity extends Activity {
     }
     @Override
     protected void onStop() {
-        unregisterReceiver(vpnChanges);
+        if (profiles != null) unregisterReceiver(vpnChanges);
         super.onStop();
     }
     private boolean listening;
@@ -138,9 +139,12 @@ public final class ProxyActivity extends Activity {
     public void onCreate(Bundle state) {
         super.onCreate(state);
         try {
-            profiles = new JSONArray(getPreferences(MODE_PRIVATE).getString("profiles", "[]"));
-        } catch (JSONException err) {
-            throw new IllegalStateException("Invalid saved profiles", err);
+            store = new ProfileStore(getPreferences(MODE_PRIVATE));
+            profiles = store.load();
+        } catch (Exception err) {
+            Toast.makeText(this, "Saved profiles could not be opened. Unlock the device and retry.", Toast.LENGTH_LONG).show();
+            finish();
+            return;
         }
         selected = getPreferences(MODE_PRIVATE).getInt("selected", 0);
         ScrollView scroll = new ScrollView(this);
@@ -236,6 +240,9 @@ public final class ProxyActivity extends Activity {
                 }).setNegativeButton("Cancel", null).show();
         });
         block(card, bypass, 44);
+        Button dns = button("VPN DNS", 0xff333333, PAPER);
+        dns.setOnClickListener(view -> showDns());
+        block(card, dns, 44);
         search.addTextChangedListener(new TextWatcher() {
             public void afterTextChanged(Editable e) {
                 renderRows();
@@ -252,6 +259,7 @@ public final class ProxyActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        if (profiles == null) return;
         reviewImport(intent);
     }
 
@@ -379,11 +387,20 @@ public final class ProxyActivity extends Activity {
             ordered.add(profiles.optJSONObject(i));
         JSONObject active = current();
         java.util.Collections.swap(ordered, from, to);
-        selected = ordered.indexOf(active);
-        profiles = new JSONArray(ordered);
-        getPreferences(MODE_PRIVATE).edit().putString("profiles", profiles.toString())
-            .putInt("selected", selected).apply();
+        saveProfiles(new JSONArray(ordered), ordered.indexOf(active));
+    }
+
+    private boolean saveProfiles(JSONArray next, int nextSelected) {
+        try {
+            store.save(next, nextSelected);
+        } catch (Exception error) {
+            Toast.makeText(this, "Could not save profiles", Toast.LENGTH_LONG).show();
+            return false;
+        }
+        profiles = next;
+        selected = nextSelected;
         render();
+        return true;
     }
 
     private void confirmRemoval(int index, String title) {
@@ -393,15 +410,11 @@ public final class ProxyActivity extends Activity {
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Remove",
                 (dialog, which) -> {
-                    profiles.remove(index);
-                    if (selected > index || selected >= profiles.length())
-                        selected = Math.max(0, selected - 1);
-                    getPreferences(MODE_PRIVATE)
-                        .edit()
-                        .putString("profiles", profiles.toString())
-                        .putInt("selected", selected)
-                        .apply();
-                    render();
+                    JSONArray remaining = new JSONArray();
+                    for (int i = 0; i < profiles.length(); i++)
+                        if (i != index) remaining.put(profiles.opt(i));
+                    int next = selected > index || selected >= remaining.length() ? Math.max(0, selected - 1) : selected;
+                    saveProfiles(remaining, next);
                 })
             .show();
     }
@@ -435,6 +448,28 @@ public final class ProxyActivity extends Activity {
         vpn.setEnabled(!disconnecting && engine == null && (p != null || active));
         vpn.setText(disconnecting ? "Disconnecting…" : active ? "Disconnect VPN" : "Connect VPN");
     }
+    private void showDns() {
+        android.content.SharedPreferences prefs = getSharedPreferences("routing", MODE_PRIVATE);
+        EditText field = new EditText(this);
+        field.setSingleLine(true);
+        field.setHint(TunnelService.DEFAULT_DNS);
+        field.setText(prefs.getString("dns", ""));
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("VPN DNS server")
+            .setMessage("Enter an IP address. A blank value uses " + TunnelService.DEFAULT_DNS + " on the next connection.")
+            .setView(field).setPositiveButton("Save", null).setNegativeButton("Cancel", null).create();
+        dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            String value = field.getText().toString().trim();
+            try {
+                if (!value.isEmpty()) TunnelService.dnsAddress(value);
+                prefs.edit().putString("dns", value).apply();
+                dialog.dismiss();
+            } catch (IllegalArgumentException invalid) {
+                field.setError("Enter a unicast IPv4 or IPv6 address");
+            }
+        });
+    }
+
     private void showRoutingApps(boolean inclusive, String title) {
         android.content.pm.PackageManager manager = getPackageManager();
         android.content.Intent launcher = new android.content.Intent(android.content.Intent.ACTION_MAIN)
@@ -570,8 +605,7 @@ public final class ProxyActivity extends Activity {
                             return;
                         }
                         JSONObject first = imported.optJSONObject(0);
-                        profiles = new JSONArray(merged.values());
-                        selected = new java.util.ArrayList<>(merged.keySet()).indexOf(first.optString("link"));
+                        int nextSelected = new java.util.ArrayList<>(merged.keySet()).indexOf(first.optString("link"));
                         for (int i = 0; i < imported.length(); i++) {
                             JSONArray warnings = imported.optJSONObject(i).optJSONArray("warnings");
                             if (warnings != null && warnings.length() > 0) {
@@ -579,13 +613,8 @@ public final class ProxyActivity extends Activity {
                                 break;
                             }
                         }
-                        getPreferences(MODE_PRIVATE)
-                            .edit()
-                            .putString("profiles", profiles.toString())
-                            .putInt("selected", selected)
-                            .apply();
-                        render();
-                        dialog.dismiss();
+                        if (saveProfiles(new JSONArray(merged.values()), nextSelected))
+                            dialog.dismiss();
                     });
                 } catch (Exception e) {
                     String message = e instanceof SubscriptionDownload.TooLarge
@@ -674,7 +703,7 @@ public final class ProxyActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        stopProxy();
+        if (profiles != null) stopProxy();
         super.onDestroy();
     }
 }

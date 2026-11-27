@@ -961,12 +961,12 @@ impl Traffic {
         let (up, down) = self.samples.back().copied().unwrap_or_default();
         ui.horizontal(|ui| {
             ui.label(semibold(
-                &format!("Upload  {:.1} KB/s", up / 1000.0),
+                format!("Upload  {:.1} KB/s", up / 1000.0),
                 13.0,
                 INK,
             ));
             ui.label(semibold(
-                &format!("Download  {:.1} KB/s", down / 1000.0),
+                format!("Download  {:.1} KB/s", down / 1000.0),
                 13.0,
                 DANGER,
             ));

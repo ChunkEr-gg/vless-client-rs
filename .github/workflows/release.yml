@@ -1,0 +1,168 @@
+name: Signed clients
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+concurrency:
+  group: signed-clients-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      code: ${{ steps.tag.outputs.code }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: tag
+        shell: python
+        run: |
+          import os, re, tomllib
+          version = tomllib.loads(open("Cargo.toml").read())["workspace"]["package"]["version"]
+          tag = os.environ["GITHUB_REF_NAME"]
+          if tag != "v" + version or not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
+              raise SystemExit("Tag must equal v followed by the workspace release version")
+          major, minor, patch = map(int, version.split("."))
+          code = major * 1_000_000 + minor * 1000 + patch
+          if minor >= 1000 or patch >= 1000 or not 1 < code <= 2_100_000_000:
+              raise SystemExit("Version exceeds mobile build-number limits")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              print(f"version={version}\ncode={code}", file=output)
+  quality:
+    uses: ./.github/workflows/quality.yml
+  tray:
+    needs: version
+    uses: ./.github/workflows/macos-client.yml
+  profiles:
+    needs: version
+    uses: ./.github/workflows/desktop-profiles.yml
+  android-validation:
+    needs: version
+    uses: ./.github/workflows/android-client.yml
+  ios-validation:
+    needs: version
+    uses: ./.github/workflows/ios-client.yml
+  android:
+    needs: [version, quality, android-validation]
+    runs-on: ubuntu-24.04
+    environment: release
+    env:
+      RELEASE_VERSION: ${{ needs.version.outputs.version }}
+      RELEASE_CODE: ${{ needs.version.outputs.code }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: "platform-tools platforms;android-36 ndk;27.3.13750724"
+      - name: Build ARM64 VPN engine
+        run: |
+          rustup target add aarch64-linux-android
+          ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.3.13750724" ./android/build-engine.sh
+      - name: Sign and verify release APK and app bundle
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          : "${KEYSTORE_B64:?}" "${ANDROID_STORE_PASSWORD:?}" "${ANDROID_KEY_ALIAS:?}" "${ANDROID_KEY_PASSWORD:?}"
+          umask 077
+          export ANDROID_KEYSTORE_FILE="$RUNNER_TEMP/dist.keystore"
+          trap 'rm -f "$ANDROID_KEYSTORE_FILE"' EXIT
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$ANDROID_KEYSTORE_FILE"
+          (cd android && ./gradlew --no-daemon :app:assembleRelease :app:bundleRelease)
+          mkdir signed
+          apk="signed/VlessClient-$RELEASE_VERSION.apk"
+          aab="signed/VlessClient-$RELEASE_VERSION.aab"
+          cp android/app/build/outputs/apk/release/app-release.apk "$apk"
+          cp android/app/build/outputs/bundle/release/app-release.aab "$aab"
+          signer=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
+          expected=$(keytool -exportcert -keystore "$ANDROID_KEYSTORE_FILE" -storepass:env ANDROID_STORE_PASSWORD -alias "$ANDROID_KEY_ALIAS" | sha256sum | cut -d' ' -f1)
+          actual=$("$signer" verify --print-certs "$apk" | awk '/^Signer #1 certificate SHA-256 digest:/ {print $NF}')
+          test "$actual" = "$expected"
+          jarsigner -verify -strict -keystore "$ANDROID_KEYSTORE_FILE" -storepass:env ANDROID_STORE_PASSWORD "$aab" "$ANDROID_KEY_ALIAS"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: signed-android
+          path: signed/
+          if-no-files-found: error
+  ios:
+    needs: [version, quality, ios-validation]
+    environment: release
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: .github/release/keychain.sh
+        env:
+          P12_B64: ${{ secrets.IOS_P12_B64 }}
+          P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
+      - run: .github/release/ios.sh
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+          TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
+          APP_PROFILE_B64: ${{ secrets.IOS_APP_PROFILE_B64 }}
+          TUNNEL_PROFILE_B64: ${{ secrets.IOS_TUNNEL_PROFILE_B64 }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: signed-ios
+          path: signed/
+          if-no-files-found: error
+  macos:
+    needs: [version, quality, profiles, tray]
+    environment: release
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: VLESS-Tray-macOS
+          path: validation/Tray
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: VLESS-Profiles-macOS
+          path: validation/Profiles
+      - run: .github/release/keychain.sh
+        env:
+          P12_B64: ${{ secrets.MACOS_P12_B64 }}
+          P12_PASSWORD: ${{ secrets.MACOS_P12_PASSWORD }}
+      - run: .github/release/macos.sh
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+          MACOS_IDENTITY: ${{ vars.MACOS_IDENTITY }}
+          NOTARY_KEY_B64: ${{ secrets.NOTARY_KEY_B64 }}
+          NOTARY_KEY_ID: ${{ vars.NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ vars.NOTARY_ISSUER }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: signed-macos
+          path: signed/
+          if-no-files-found: error
+  publish:
+    needs: [android, ios, macos]
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      attestations: write
+      id-token: write
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: signed-*
+          merge-multiple: true
+          path: signed
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: signed/*
+      - name: Stage signed artifacts in a draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if draft=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft); then
+            test "$draft" = true || { echo "Tag already has a published release"; exit 1; }
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft --generate-notes --repo "$GITHUB_REPOSITORY"
+          fi
+          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber signed/*

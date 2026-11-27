@@ -3,7 +3,7 @@ name: Windows SOCKS proxy
 on:
   pull_request:
   push:
-    branches: [claude/sweet-tesla-xhzpgw]
+    branches: ["**"]
   workflow_dispatch:
 
 permissions:
@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   build:
+    if: github.event_name != 'push' || github.ref_type == 'tag' || github.ref_name == 'main' || github.ref_name == github.event.repository.default_branch
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4

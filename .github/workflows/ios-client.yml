@@ -3,8 +3,9 @@ name: iOS client
 on:
   pull_request:
   push:
-    branches: [claude/sweet-tesla-xhzpgw]
+    branches: ["**"]
   workflow_dispatch:
+  workflow_call:
 
 concurrency:
   group: ios-client-${{ github.event.pull_request.number || github.ref }}
@@ -15,6 +16,7 @@ permissions:
 
 jobs:
   simulator:
+    if: github.event_name != 'push' || github.ref_type == 'tag' || github.ref_name == 'main' || github.ref_name == github.event.repository.default_branch
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -51,6 +53,7 @@ jobs:
           if-no-files-found: error
 
   device-archive:
+    if: github.event_name != 'push' || github.ref_type == 'tag' || github.ref_name == 'main' || github.ref_name == github.event.repository.default_branch
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4

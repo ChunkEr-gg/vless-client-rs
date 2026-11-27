@@ -18,6 +18,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: "$(VLESS_BUNDLE_IDENTIFIER)"
+        PROVISIONING_PROFILE_SPECIFIER: "$(APP_PROFILE_NAME)"
         CODE_SIGN_ENTITLEMENTS: Vless.entitlements
         INFOPLIST_FILE: AppInfo.plist
         GENERATE_INFOPLIST_FILE: YES
@@ -38,6 +39,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: "$(VLESS_BUNDLE_IDENTIFIER).tunnel"
+        PROVISIONING_PROFILE_SPECIFIER: "$(TUNNEL_PROFILE_NAME)"
         CODE_SIGN_ENTITLEMENTS: Vless.entitlements
         INFOPLIST_FILE: TunnelInfo.plist
         SWIFT_OBJC_BRIDGING_HEADER: App/VlessMobile.h

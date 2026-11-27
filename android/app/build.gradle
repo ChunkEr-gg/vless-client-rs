@@ -7,9 +7,21 @@ android {
     defaultConfig {
         applicationId 'io.vless.client'
         minSdk 26
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         targetSdk 36
-        versionCode 1
-        versionName '0.1'
+        versionCode = (System.getenv('RELEASE_CODE') ?: '1').toInteger()
+        versionName = System.getenv('RELEASE_VERSION') ?: '0.1'
+    }
+    if (System.getenv('ANDROID_KEYSTORE_FILE')) {
+        signingConfigs {
+            distribution {
+                storeFile file(System.getenv('ANDROID_KEYSTORE_FILE'))
+                storePassword System.getenv('ANDROID_STORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+        buildTypes.release.signingConfig = signingConfigs.distribution
     }
     packaging { jniLibs { useLegacyPackaging = true } }
 }
@@ -21,3 +33,8 @@ tasks.register('checkEngine') {
     }
 }
 tasks.named('preBuild').configure { dependsOn('checkEngine') }
+
+dependencies {
+    androidTestImplementation 'androidx.test:runner:1.7.0'
+    androidTestImplementation 'androidx.test.ext:junit:1.3.0'
+}

@@ -1,6 +1,6 @@
 # VLESS clients for reality-ktls
 
-Download artifacts from a successful workflow run for the platform you want.
+Version tags produce signed Android, iOS and macOS packages through the [distribution workflow](#distribution-builds). The table lists development builds from individual platform workflows.
 
 | Platform | Artifact | How to open it |
 | --- | --- | --- |
@@ -274,3 +274,27 @@ Licensed under the [MIT License](LICENSE).
 
 - [`cfal/shoes`](https://github.com/cfal/shoes) (`7680938b`, MIT) by Alex Lau — upstream source of `engine/`, together with its pinned [`cfal/rustls`](https://github.com/cfal/rustls) (`f1a23c18`) and [`cfal/smoltcp`](https://github.com/cfal/smoltcp) (`7ef43e49`) forks. See [`NOTICE`](NOTICE) and [`STRIPPED.md`](STRIPPED.md).
 - [`ChunkEr-gg/reality-ktls`](https://github.com/ChunkEr-gg/reality-ktls) — target VLESS (`REALITY` + `kTLS`) server implementation.
+
+### Distribution builds
+
+Set the workspace package version to `MAJOR.MINOR.PATCH` and tag that commit
+`vMAJOR.MINOR.PATCH`. Release versions increase monotonically. Android's
+version code is `major × 1000000 + minor × 1000 + patch` (minor and patch
+each below 1000). Retrying a tag produces the same version. Protect release
+tags and restrict the GitHub Actions `release` environment to authorized tags.
+
+The environment needs the following signing material. Base64 values encode
+the original binary files. Store private material as GitHub environment secrets.
+
+| Platform | Secrets | Environment variables (GitHub vars) |
+| --- | --- | --- |
+| Android | ANDROID_KEYSTORE_B64, ANDROID_STORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD | |
+| iOS | IOS_P12_B64, IOS_P12_PASSWORD, IOS_APP_PROFILE_B64, IOS_TUNNEL_PROFILE_B64 | APPLE_TEAM_ID, IOS_BUNDLE_ID |
+| macOS | MACOS_P12_B64, MACOS_P12_PASSWORD, NOTARY_KEY_B64 | MACOS_IDENTITY, NOTARY_KEY_ID, NOTARY_ISSUER |
+
+Use an Android distribution or Play upload key, an Apple Distribution identity
+and two App Store provisioning profiles with Packet Tunnel capability (the
+extension ID ends in `.tunnel`), and a Developer ID Application identity plus
+an App Store Connect notarization API key. The signed workflow stages the APK,
+AAB, IPA and stapled macOS ZIPs in a draft GitHub Release after quality checks.
+Verify a downloaded file with `gh attestation verify FILE -R ChunkEr-gg/vless-client-rs`.
