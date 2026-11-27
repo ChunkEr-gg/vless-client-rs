@@ -26,3 +26,11 @@ rustup target add aarch64-linux-android
 The installable debug APK is at `android/app/build/outputs/apk/debug/app-debug.apk`.
 The APK embeds the optimized engine in the native library directory so Android
 can execute it directly. The app passes the share link through a private pipe.
+
+Profile lists are encrypted with an app-scoped Android Keystore AES-GCM key.
+Opening the app migrates existing profiles and their selected index in one
+preferences transaction. A key or data error leaves the saved records in place.
+
+**VPN DNS** accepts a numeric unicast IPv4 or IPv6 server. Changes apply on the
+next connection. Blank uses 1.1.1.1 for compatibility. An unreachable custom
+server causes DNS queries to fail. The app does not switch to another resolver.

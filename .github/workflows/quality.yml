@@ -1,0 +1,20 @@
+name: Client quality
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  check:
+    if: github.event_name != 'push' || github.ref_type == 'tag' || github.ref_name == 'main' || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: cargo clippy --locked --all-targets --workspace -- -D warnings
+      - run: cargo test --locked --workspace
+      - uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2
+        with:
+          tool: cargo-audit@0.23.0
+      - run: cargo audit --file Cargo.lock

@@ -788,11 +788,10 @@ fn extract_cert_pin(params: &[(String, String)]) -> Result<Option<[u8; 32]>, Pro
 }
 
 fn strip_optional_sha256_prefix(s: &str) -> &str {
-    if let Some(prefix) = s.get(..7) {
-        if prefix.eq_ignore_ascii_case("sha256:") || prefix.eq_ignore_ascii_case("sha256/") {
+    if let Some(prefix) = s.get(..7)
+        && (prefix.eq_ignore_ascii_case("sha256:") || prefix.eq_ignore_ascii_case("sha256/")) {
             return &s[7..];
         }
-    }
     s
 }
 
