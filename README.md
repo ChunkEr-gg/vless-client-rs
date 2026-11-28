@@ -297,4 +297,14 @@ and two App Store provisioning profiles with Packet Tunnel capability (the
 extension ID ends in `.tunnel`), and a Developer ID Application identity plus
 an App Store Connect notarization API key. The signed workflow stages the APK,
 AAB, IPA and stapled macOS ZIPs in a draft GitHub Release after quality checks.
-Verify a downloaded file with `gh attestation verify FILE -R ChunkEr-gg/vless-client-rs`.
+Download the companion `provenance.sigstore.json` from the same draft and
+verify each file against the release tag and its full commit SHA:
+
+```sh
+gh attestation verify "$FILE" --bundle provenance.sigstore.json -R ChunkEr-gg/vless-client-rs \
+  --source-ref "refs/tags/$TAG" --source-digest "$COMMIT" --deny-self-hosted-runners \
+  --signer-workflow ChunkEr-gg/vless-client-rs/.github/workflows/release.yml
+```
+
+Android PR CI builds a validation AAB with the runner's disposable signing
+key. The distribution key stays in the release environment.

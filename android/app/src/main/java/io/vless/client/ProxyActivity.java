@@ -139,14 +139,15 @@ public final class ProxyActivity extends Activity {
     public void onCreate(Bundle state) {
         super.onCreate(state);
         try {
-            store = new ProfileStore(getPreferences(MODE_PRIVATE));
-            profiles = store.load();
+            store = new ProfileStore(this, getPreferences(MODE_PRIVATE), "profiles.db");
+            ProfileStore.Snapshot saved = store.load();
+            profiles = saved.rows;
+            selected = saved.selected;
         } catch (Exception err) {
             Toast.makeText(this, "Saved profiles could not be opened. Unlock the device and retry.", Toast.LENGTH_LONG).show();
             finish();
             return;
         }
-        selected = getPreferences(MODE_PRIVATE).getInt("selected", 0);
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(CANVAS);
         LinearLayout layout = column(18);
@@ -343,9 +344,7 @@ public final class ProxyActivity extends Activity {
             row.setOnClickListener(v -> {
                 if (engine != null || vpnActive())
                     return;
-                selected = index;
-                getPreferences(MODE_PRIVATE).edit().putInt("selected", index).apply();
-                render();
+                saveProfiles(profiles, index);
             });
             row.setOnLongClickListener(v -> {
                 if (engine != null || vpnActive())

@@ -110,7 +110,8 @@ public final class TunnelService extends VpnService {
                                   .addRoute("::", 0);
             android.content.SharedPreferences prefs = getSharedPreferences("routing", MODE_PRIVATE);
             String dns = prefs.getString("dns", "");
-            builder.addDnsServer(dnsAddress(dns.isEmpty() ? DEFAULT_DNS : dns));
+            java.net.InetAddress resolver = dnsAddress(dns.isEmpty() ? DEFAULT_DNS : dns);
+            builder.addDnsServer(resolver);
             boolean inclusive = prefs.getBoolean("inclusive", false);
             if (!inclusive)
                 builder.addDisallowedApplication(getPackageName());
@@ -133,7 +134,7 @@ public final class TunnelService extends VpnService {
                     throw new IOException("VPN permission was revoked");
                 String socket = "vless-" + UUID.randomUUID();
                 File binary = new File(getApplicationInfo().nativeLibraryDir, "libvless_engine.so");
-                process = session.start(new ProcessBuilder(binary.getPath(), "android-vpn", socket)
+                process = session.start(new ProcessBuilder(binary.getPath(), "android-vpn", socket, resolver.getHostAddress())
                                             .redirectErrorStream(true));
                 try (LocalSocket control = connect(socket, process, session)) {
                     if (control.getPeerCredentials().getUid() != android.os.Process.myUid())

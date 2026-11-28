@@ -1,5 +1,14 @@
 package io.vless.client;
 
+import android.app.Activity;
+import android.app.Instrumentation;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.net.VpnService;
+import android.os.ParcelFileDescriptor;
+import android.os.SystemClock;
+import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
@@ -9,6 +18,60 @@ import static org.junit.Assert.*;
 
 @RunWith(AndroidJUnit4.class)
 public class TunnelServiceTest {
+    private String shell(String command) throws IOException {
+        Instrumentation inst = InstrumentationRegistry.getInstrumentation();
+        try (java.io.InputStream in = new ParcelFileDescriptor.AutoCloseInputStream(
+                     inst.getUiAutomation().executeShellCommand(command));
+             java.util.Scanner scanner = new java.util.Scanner(in, "UTF-8").useDelimiter("\\A")) {
+            return scanner.hasNext() ? scanner.next() : "";
+        }
+    }
+
+    private void awaitVpn(String state, boolean interfacePresent) throws Exception {
+        long until = SystemClock.elapsedRealtime() + 20000;
+        String addresses;
+        do {
+            addresses = shell("ip -o addr show");
+            if (TunnelService.state.equals(state) && addresses.contains("172.29.255.1/30") == interfacePresent)
+                return;
+            SystemClock.sleep(100);
+        } while (SystemClock.elapsedRealtime() < until);
+        fail("Expected " + state + ", actual " + TunnelService.state + ", interfaces " + addresses);
+    }
+
+    @Test public void destroyingConnectedServiceRemovesTunAndAllowsRestart() throws Exception {
+        Instrumentation inst = InstrumentationRegistry.getInstrumentation();
+        Context context = inst.getTargetContext();
+        Activity activity = inst.startActivitySync(new Intent(context, ProxyActivity.class)
+                                      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        Intent service = new Intent(context, TunnelService.class).putExtra("name", "Device fixture")
+                             .putExtra("link", "vless://b831381d-6324-4d53-ad4f-8cda48b30811@10.0.2.2:19443"
+                                               + "?security=tls&sni=fixture.test");
+        SharedPreferences routing = context.getSharedPreferences("routing", Context.MODE_PRIVATE);
+        String previous = routing.getString("dns", null);
+        try {
+            assertTrue(routing.edit().putString("dns", "10.20.0.53").commit());
+            shell("appops set " + context.getPackageName() + " ACTIVATE_VPN allow");
+            assertNull("VPN authorization", VpnService.prepare(context));
+            for (int connection = 0; connection < 2; connection++) {
+                context.startForegroundService(service);
+                awaitVpn("Connected", true);
+                assertTrue("Rust VPN child received private resolver",
+                           java.util.Arrays.stream(shell("ps -A -w -o ARGS").split("\\n")).anyMatch(line ->
+                               line.contains("libvless_engine.so android-vpn ") && line.trim().endsWith(" 10.20.0.53")));
+                assertTrue("Android advertised private resolver",
+                           shell("dumpsys connectivity").contains("10.20.0.53"));
+                assertTrue(context.stopService(service));
+                awaitVpn("Off", false);
+            }
+        } finally {
+            context.stopService(service);
+            routing.edit().putString("dns", previous).commit();
+            shell("appops set " + context.getPackageName() + " ACTIVATE_VPN default");
+            inst.runOnMainSync(activity::finish);
+        }
+    }
+
     @Test public void stopBeforeLaunchPreventsChildCreation() {
         TunnelService.Session session = new TunnelService.Session();
         session.cancel();
