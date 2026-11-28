@@ -39,6 +39,20 @@ public class TunnelServiceTest {
         fail("Expected " + state + ", actual " + TunnelService.state + ", interfaces " + addresses);
     }
 
+    private void awaitServiceDestroyed(Context context) throws Exception {
+        android.app.ActivityManager manager = context.getSystemService(android.app.ActivityManager.class);
+        long until = SystemClock.elapsedRealtime() + 10000;
+        do {
+            // Android exposes this app's own services to the instrumentation UID.
+            boolean running = manager.getRunningServices(Integer.MAX_VALUE).stream()
+                .anyMatch(info -> TunnelService.class.getName().equals(info.service.getClassName()));
+            if (!running && !shell("ps -A -w -o ARGS").contains("libvless_engine.so android-vpn "))
+                return;
+            SystemClock.sleep(100);
+        } while (SystemClock.elapsedRealtime() < until);
+        fail("VPN service or native engine remained after disconnect");
+    }
+
     @Test public void destroyingConnectedServiceRemovesTunAndAllowsRestart() throws Exception {
         Instrumentation inst = InstrumentationRegistry.getInstrumentation();
         Context context = inst.getTargetContext();
@@ -61,11 +75,15 @@ public class TunnelServiceTest {
                                line.contains("libvless_engine.so android-vpn ") && line.trim().endsWith(" 10.20.0.53")));
                 assertTrue("Android advertised private resolver",
                            shell("dumpsys connectivity").contains("10.20.0.53"));
-                assertTrue(context.stopService(service));
+                // Android binds the active VpnService. The disconnect action releases
+                // the TUN, lets the system unbind and permits actual service destruction.
+                assertNotNull(context.startService(new Intent(context, TunnelService.class).setAction("stop")));
                 awaitVpn("Off", false);
+                awaitServiceDestroyed(context);
             }
         } finally {
-            context.stopService(service);
+            if (!TunnelService.state.equals("Off"))
+                context.startService(new Intent(context, TunnelService.class).setAction("stop"));
             routing.edit().putString("dns", previous).commit();
             shell("appops set " + context.getPackageName() + " ACTIVATE_VPN default");
             inst.runOnMainSync(activity::finish);
