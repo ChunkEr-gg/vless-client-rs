@@ -32,6 +32,13 @@ Opening the app migrates plaintext and previously encrypted preferences to a
 single SQLite row holding the authenticated ciphertext and selection. The app
 removes the old records after the database transaction commits. A key or data error leaves the saved records in place.
 
+An older APK reads the preference format. Before manually downgrading, export
+the profiles you need using **Share profile** and keep the links private.
+If you already downgraded in place and see an empty list, reinstall the
+SQLite-capable version with the same app signature while retaining app data.
+It can reopen the migrated library with the original Keystore key. Clearing
+app data or uninstalling deletes that key.
+
 **VPN DNS** accepts a numeric unicast IPv4 or IPv6 server. Changes apply on the
 next connection. Blank uses 1.1.1.1 for compatibility. An unreachable custom
 server causes DNS queries to fail. Queries to the selected address travel over

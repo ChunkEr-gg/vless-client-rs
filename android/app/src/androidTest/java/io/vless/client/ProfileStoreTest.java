@@ -5,7 +5,6 @@ import android.content.SharedPreferences;
 import android.util.Base64;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
-import android.database.sqlite.SQLiteException;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import java.security.GeneralSecurityException;
@@ -102,22 +101,48 @@ public class ProfileStoreTest {
         assertFalse(prefs.contains(SEALED));
     }
 
+    @Test public void savesAndMigratesLibrariesLargerThanTheCursorWindow() throws Exception {
+        char[] name = new char[2300000];
+        java.util.Arrays.fill(name, 'x');
+        JSONArray large = new JSONArray().put(new org.json.JSONObject().put("name", new String(name)));
+        assertTrue(prefs.edit().putString("profiles", large.toString()).commit());
+        store().load();
+        assertFalse(prefs.contains("profiles"));
+        assertEquals(large.toString(), store().load().rows.toString());
+        large.put(new org.json.JSONObject().put("name", "second"));
+        store().save(large, 1);
+        ProfileStore.Snapshot reopened = store().load();
+        assertEquals(1, reopened.selected);
+        assertEquals(large.toString(), reopened.rows.toString());
+    }
+
     @Test public void failedDeletionThenSelectionKeepsBothProfiles() throws Exception {
         ProfileStore store = store();
         store.load();
         JSONArray original = new JSONArray(ROWS);
         store.save(original, 0);
+        android.app.Instrumentation inst = InstrumentationRegistry.getInstrumentation();
+        ProxyActivity activity = (ProxyActivity) inst.startActivitySync(new android.content.Intent(context, ProxyActivity.class)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
         try (SQLiteDatabase db = database()) {
             db.execSQL("CREATE TRIGGER fail_save BEFORE UPDATE ON profile_state BEGIN "
                        + "SELECT RAISE(ABORT, 'injected write failure'); END");
-            JSONArray deletion = new JSONArray().put(original.get(1));
-            assertThrows(SQLiteException.class, () -> store.save(deletion, 0));
+            java.util.concurrent.FutureTask<Boolean> deletion = new java.util.concurrent.FutureTask<>(() -> {
+                activity.loadProfiles(store);
+                return activity.removeProfile(0);
+            });
+            inst.runOnMainSync(deletion);
+            assertFalse(deletion.get());
             db.execSQL("DROP TRIGGER fail_save");
+            java.util.concurrent.FutureTask<Boolean> selection =
+                new java.util.concurrent.FutureTask<>(() -> activity.selectProfile(1));
+            inst.runOnMainSync(selection);
+            assertTrue(selection.get());
+            ProfileStore.Snapshot restored = store().load();
+            assertEquals(original.toString(), restored.rows.toString());
+            assertEquals(1, restored.selected);
+        } finally {
+            inst.runOnMainSync(activity::finish);
         }
-        assertEquals(2, store().load().rows.length());
-        store.save(original, 1);
-        ProfileStore.Snapshot restored = store().load();
-        assertEquals(original.toString(), restored.rows.toString());
-        assertEquals(1, restored.selected);
     }
 }

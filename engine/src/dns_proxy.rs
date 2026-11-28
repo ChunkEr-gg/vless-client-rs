@@ -11,7 +11,8 @@
 //!   each caller's original transaction ID when the matching response arrives.
 //! - Lazily dials on first query, reconnects on demand if the XUDP stream closes or errors (with
 //!   one automatic retry if a previously-used idle stream went stale), and uses zero timers while
-//!   no queries are in flight.
+//!   no queries are in flight. TCP queries too large for XUDP and truncated replies
+//!   on a TCP request use a real VLESS TCP connection to the resolver.
 
 use std::collections::{HashMap, VecDeque};
 use std::future::{Future, poll_fn};
@@ -54,7 +55,11 @@ pub const TUN_STUB_DNS_IPV4: IpAddr = IpAddr::V4(Ipv4Addr::new(198, 18, 0, 2));
 type DialXudpFuture<'a> =
     Pin<Box<dyn Future<Output = io::Result<Box<dyn AsyncMessageStream>>> + Send + 'a>>;
 
+#[async_trait::async_trait]
 trait DnsXudpDialer: Send + Sync {
+    async fn query_tcp(&self, _query: &[u8]) -> io::Result<Vec<u8>> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
     fn dial_xudp(&self) -> DialXudpFuture<'_>;
 }
 
@@ -64,7 +69,34 @@ struct ChainXudpDialer {
     upstream_dns: NetLocation,
 }
 
+#[async_trait::async_trait]
 impl DnsXudpDialer for ChainXudpDialer {
+    async fn query_tcp(&self, query: &[u8]) -> io::Result<Vec<u8>> {
+        let setup = self
+            .vless_chain
+            .connect_tcp(self.upstream_dns.clone().into(), &self.resolver)
+            .await?;
+        let mut stream = crate::prepend_stream::PrependStream::new(
+            setup.client_stream,
+            setup.early_data.map(Vec::into_boxed_slice),
+        );
+        stream
+            .write_u16(u16::try_from(query.len()).map_err(io::Error::other)?)
+            .await?;
+        stream.write_all(query).await?;
+        stream.flush().await?;
+        let length = usize::from(stream.read_u16().await?);
+        if length < DNS_HEADER_LEN {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+        let mut reply = vec![0; length];
+        stream.read_exact(&mut reply).await?;
+        if reply[..2] != query[..2] || reply[2] & 0x80 == 0 {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+        Ok(reply)
+    }
+
     fn dial_xudp(&self) -> DialXudpFuture<'_> {
         let target = self.upstream_dns.clone().into();
         Box::pin(async move {
@@ -197,6 +229,7 @@ impl DnsForwarder {
     /// forwarding each query payload through the shared XUDP association.
     pub fn tcp_stream(&self) -> Box<dyn AsyncStream> {
         let (local, mut peer) = tokio::io::duplex(65536);
+        let dialer = self.dialer.clone();
         let mux_tx = self.ensure_mux_sender();
         let cancel = self.cancel.clone();
 
@@ -221,7 +254,7 @@ impl DnsForwarder {
                     break;
                 }
                 let qlen = usize::from(u16::from_be_bytes([first_byte[0], second_byte[0]]));
-                if !(DNS_HEADER_LEN..=MAX_XUDP_DNS_PAYLOAD).contains(&qlen) {
+                if qlen < DNS_HEADER_LEN {
                     log::debug!("Dropping invalid TCP DNS frame of length {qlen}");
                     break;
                 }
@@ -232,20 +265,30 @@ impl DnsForwarder {
                     _ => break,
                 }
 
-                let (reply_tx, reply_rx) = oneshot::channel();
-                if mux_tx.send(MuxRequest { query, reply_tx }).await.is_err() {
-                    break;
-                }
-
-                let resp = match tokio::time::timeout(DNS_QUERY_TIMEOUT, reply_rx).await {
-                    Ok(Ok(Ok(bytes))) => bytes,
-                    Ok(Ok(Err(err))) => {
-                        log::debug!("TCP DNS query via shared XUDP failed: {err}");
-                        break;
+                let exchange = async {
+                    if query.len() <= MAX_XUDP_DNS_PAYLOAD {
+                        let (reply_tx, reply_rx) = oneshot::channel();
+                        mux_tx
+                            .send(MuxRequest {
+                                query: query.clone(),
+                                reply_tx,
+                            })
+                            .await
+                            .map_err(|_| io::ErrorKind::BrokenPipe)?;
+                        let reply = reply_rx.await.map_err(|_| io::ErrorKind::BrokenPipe)??;
+                        if reply.len() >= DNS_HEADER_LEN && reply[2] & 0x02 == 0 {
+                            return Ok(reply);
+                        }
                     }
-                    _ => break,
+                    dialer.query_tcp(&query).await
                 };
-
+                let resp = tokio::select! {
+                    () = cancel.cancelled() => break,
+                    result = tokio::time::timeout(DNS_QUERY_TIMEOUT, exchange) => match result {
+                        Ok(Ok(reply)) => reply,
+                        _ => break,
+                    },
+                };
                 let Ok(rlen) = u16::try_from(resp.len()) else {
                     break;
                 };

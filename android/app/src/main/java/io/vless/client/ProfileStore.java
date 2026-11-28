@@ -4,6 +4,9 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteStatement;
+import android.os.ParcelFileDescriptor;
+import java.io.DataInputStream;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
@@ -86,9 +89,18 @@ final class ProfileStore {
         Snapshot result;
         try (SQLiteDatabase db = open()) {
             db.beginTransaction();
-            try (Cursor cursor = db.rawQuery("SELECT envelope, selected FROM profile_state WHERE id = 1", null)) {
+            try (Cursor cursor = db.rawQuery("SELECT length(envelope), selected FROM profile_state WHERE id = 1", null)) {
                 if (cursor.moveToFirst()) {
-                    result = new Snapshot(decrypt(cursor.getBlob(0)), cursor.getInt(1));
+                    // A cursor cannot materialize a multi-megabyte ciphertext in its window.
+                    byte[] bytes = new byte[cursor.getInt(0)];
+                    try (SQLiteStatement blob = db.compileStatement("SELECT envelope FROM profile_state WHERE id = 1")) {
+                        ParcelFileDescriptor fd = blob.simpleQueryForBlobFileDescriptor();
+                        if (fd == null) throw new IOException("Could not open encrypted profiles");
+                        try (DataInputStream input = new DataInputStream(new ParcelFileDescriptor.AutoCloseInputStream(fd))) {
+                            input.readFully(bytes);
+                        }
+                    }
+                    result = new Snapshot(decrypt(bytes), cursor.getInt(1));
                 } else {
                     int selected = prefs.getInt("selected", 0);
                     String sealed = prefs.getString(SEALED, null);
