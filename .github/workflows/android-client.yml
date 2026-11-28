@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: android-actions/setup-android@v3
         with:
-          packages: "platform-tools platforms;android-36 ndk;27.3.13750724"
+          packages: "emulator platform-tools platforms;android-36 ndk;27.3.13750724"
       - name: Build ARM64 engine
         run: |
           rustup target add aarch64-linux-android
@@ -36,16 +36,24 @@ jobs:
         env:
           ANDROID_STORE_PASSWORD: android
           ANDROID_KEY_PASSWORD: android
-          ANDROID_KEY_ALIAS: androiddebugkey
+          ANDROID_KEY_ALIAS: validation
         run: |
-          export ANDROID_KEYSTORE_FILE="$HOME/.android/debug.keystore"
+          export ANDROID_KEYSTORE_FILE="$RUNNER_TEMP/validation.p12"
+          trap 'rm -f "$ANDROID_KEYSTORE_FILE"' EXIT
+          keytool -genkeypair -noprompt -alias "$ANDROID_KEY_ALIAS" -keystore "$ANDROID_KEYSTORE_FILE" \
+            -storetype PKCS12 -storepass:env ANDROID_STORE_PASSWORD -keyalg RSA -keysize 2048 \
+            -validity 30 -dname "CN=CI validation"
           ./gradlew :app:bundleRelease
           jarsigner -verify -strict -keystore "$ANDROID_KEYSTORE_FILE" -storepass:env ANDROID_STORE_PASSWORD \
             app/build/outputs/bundle/release/app-release.aab "$ANDROID_KEY_ALIAS"
+          keytool -exportcert -rfc -alias "$ANDROID_KEY_ALIAS" -keystore "$ANDROID_KEYSTORE_FILE" \
+            -storepass:env ANDROID_STORE_PASSWORD -file app/build/outputs/bundle/release/validation.pem
       - uses: actions/upload-artifact@v4
         with:
           name: validation-android-aab
-          path: android/app/build/outputs/bundle/release/app-release.aab
+          path: |
+            android/app/build/outputs/bundle/release/app-release.aab
+            android/app/build/outputs/bundle/release/validation.pem
           if-no-files-found: error
       - name: Build native x86_64 engine for device tests
         run: |
@@ -88,7 +96,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          node .github/provenance/sign.mjs provenance.sigstore.json app-release.aab
+          node .github/provenance/sign.mjs provenance.sigstore.json app-release.aab validation.pem
           gh attestation verify app-release.aab --bundle provenance.sigstore.json --repo "$GITHUB_REPOSITORY" \
             --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA" --deny-self-hosted-runners \
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/android-client.yml"
