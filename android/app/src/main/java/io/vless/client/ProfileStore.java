@@ -1,6 +1,12 @@
 package io.vless.client;
 
+import android.content.Context;
 import android.content.SharedPreferences;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteStatement;
+import android.os.ParcelFileDescriptor;
+import java.io.DataInputStream;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
@@ -22,7 +28,12 @@ final class ProfileStore {
     private static final int IV_BYTES = 12;
     private final SharedPreferences prefs;
 
-    ProfileStore(SharedPreferences prefs) {
+    private final Context context;
+    private final String database;
+
+    ProfileStore(Context context, SharedPreferences prefs, String database) {
+        this.context = context;
+        this.database = database;
         this.prefs = prefs;
     }
 
@@ -43,36 +54,96 @@ final class ProfileStore {
         return generator.generateKey();
     }
 
-    JSONArray load() throws GeneralSecurityException, IOException, JSONException {
-        String sealed = prefs.getString(SEALED, null);
-        if (sealed != null) {
-            byte[] bytes = Base64.decode(sealed, Base64.NO_WRAP);
-            if (bytes.length < IV_BYTES + 16)
-                throw new IOException("Incomplete encrypted profiles");
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.DECRYPT_MODE, key(false), new GCMParameterSpec(128, bytes, 0, IV_BYTES));
-            return new JSONArray(new String(cipher.doFinal(bytes, IV_BYTES, bytes.length - IV_BYTES),
-                                            StandardCharsets.UTF_8));
+    static final class Snapshot {
+        final JSONArray rows;
+        final int selected;
+
+        Snapshot(JSONArray rows, int selected) {
+            this.rows = rows;
+            this.selected = selected;
         }
-        String legacy = prefs.getString("profiles", null);
-        if (legacy == null)
-            return new JSONArray();
-        JSONArray rows = new JSONArray(legacy);
-        save(rows, prefs.getInt("selected", 0));
-        return rows;
     }
 
-    void save(JSONArray rows, int selected) throws GeneralSecurityException, IOException {
+    private SQLiteDatabase open() {
+        SQLiteDatabase db = context.openOrCreateDatabase(database, Context.MODE_PRIVATE, null);
+        try {
+            db.execSQL("CREATE TABLE IF NOT EXISTS profile_state (id INTEGER PRIMARY KEY CHECK(id = 1), "
+                       + "envelope BLOB NOT NULL, selected INTEGER NOT NULL)");
+            return db;
+        } catch (RuntimeException ex) {
+            db.close();
+            throw ex;
+        }
+    }
+
+    private JSONArray decrypt(byte[] bytes) throws GeneralSecurityException, IOException, JSONException {
+        if (bytes.length < IV_BYTES + 16)
+            throw new IOException("Incomplete encrypted profiles");
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-        cipher.init(Cipher.ENCRYPT_MODE, key(!prefs.contains(SEALED)));
+        cipher.init(Cipher.DECRYPT_MODE, key(false), new GCMParameterSpec(128, bytes, 0, IV_BYTES));
+        return new JSONArray(new String(cipher.doFinal(bytes, IV_BYTES, bytes.length - IV_BYTES),
+                                        StandardCharsets.UTF_8));
+    }
+
+    Snapshot load() throws GeneralSecurityException, IOException, JSONException {
+        Snapshot result;
+        try (SQLiteDatabase db = open()) {
+            db.beginTransaction();
+            try (Cursor cursor = db.rawQuery("SELECT length(envelope), selected FROM profile_state WHERE id = 1", null)) {
+                if (cursor.moveToFirst()) {
+                    // A cursor cannot materialize a multi-megabyte ciphertext in its window.
+                    byte[] bytes = new byte[cursor.getInt(0)];
+                    try (SQLiteStatement blob = db.compileStatement("SELECT envelope FROM profile_state WHERE id = 1")) {
+                        ParcelFileDescriptor fd = blob.simpleQueryForBlobFileDescriptor();
+                        if (fd == null) throw new IOException("Could not open encrypted profiles");
+                        try (DataInputStream input = new DataInputStream(new ParcelFileDescriptor.AutoCloseInputStream(fd))) {
+                            input.readFully(bytes);
+                        }
+                    }
+                    result = new Snapshot(decrypt(bytes), cursor.getInt(1));
+                } else {
+                    int selected = prefs.getInt("selected", 0);
+                    String sealed = prefs.getString(SEALED, null);
+                    byte[] bytes;
+                    if (sealed != null) {
+                        bytes = Base64.decode(sealed, Base64.NO_WRAP);
+                        result = new Snapshot(decrypt(bytes), selected);
+                    } else {
+                        result = new Snapshot(new JSONArray(prefs.getString("profiles", "[]")), selected);
+                        bytes = encrypt(result.rows, true);
+                    }
+                    db.execSQL("INSERT INTO profile_state VALUES (1, ?, ?)", new Object[] {bytes, selected});
+                }
+                db.setTransactionSuccessful();
+            } finally {
+                db.endTransaction();
+            }
+        }
+        // A crash before this point leaves the legacy copy available for migration.
+        if ((prefs.contains("profiles") || prefs.contains(SEALED) || prefs.contains("selected"))
+                && !prefs.edit().remove("profiles").remove(SEALED).remove("selected").commit())
+            throw new IOException("Could not remove migrated profile preferences");
+        return result;
+    }
+
+    private byte[] encrypt(JSONArray rows, boolean create) throws GeneralSecurityException, IOException {
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.ENCRYPT_MODE, key(create));
         byte[] iv = cipher.getIV();
         if (iv.length != IV_BYTES)
             throw new GeneralSecurityException("Unexpected profile IV size");
         byte[] ciphertext = cipher.doFinal(rows.toString().getBytes(StandardCharsets.UTF_8));
-        byte[] envelope = ByteBuffer.allocate(iv.length + ciphertext.length).put(iv).put(ciphertext).array();
-        // SharedPreferences atomically replaces one file, including the legacy key removal.
-        if (!prefs.edit().putString(SEALED, Base64.encodeToString(envelope, Base64.NO_WRAP))
-                .putInt("selected", selected).remove("profiles").commit())
-            throw new IOException("Could not commit encrypted profiles");
+        return ByteBuffer.allocate(iv.length + ciphertext.length).put(iv).put(ciphertext).array();
+    }
+
+    void save(JSONArray rows, int selected) throws GeneralSecurityException, IOException {
+        // load() authenticates or migrates the single row before editing becomes available.
+        android.content.ContentValues values = new android.content.ContentValues();
+        values.put("envelope", encrypt(rows, false));
+        values.put("selected", selected);
+        try (SQLiteDatabase db = open()) {
+            if (db.update("profile_state", values, "id = 1", null) != 1)
+                throw new IOException("Missing profile state");
+        }
     }
 }

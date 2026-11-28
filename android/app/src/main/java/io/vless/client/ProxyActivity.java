@@ -139,14 +139,12 @@ public final class ProxyActivity extends Activity {
     public void onCreate(Bundle state) {
         super.onCreate(state);
         try {
-            store = new ProfileStore(getPreferences(MODE_PRIVATE));
-            profiles = store.load();
+            loadProfiles(new ProfileStore(this, getPreferences(MODE_PRIVATE), "profiles.db"));
         } catch (Exception err) {
             Toast.makeText(this, "Saved profiles could not be opened. Unlock the device and retry.", Toast.LENGTH_LONG).show();
             finish();
             return;
         }
-        selected = getPreferences(MODE_PRIVATE).getInt("selected", 0);
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(CANVAS);
         LinearLayout layout = column(18);
@@ -343,9 +341,7 @@ public final class ProxyActivity extends Activity {
             row.setOnClickListener(v -> {
                 if (engine != null || vpnActive())
                     return;
-                selected = index;
-                getPreferences(MODE_PRIVATE).edit().putInt("selected", index).apply();
-                render();
+                selectProfile(index);
             });
             row.setOnLongClickListener(v -> {
                 if (engine != null || vpnActive())
@@ -390,6 +386,25 @@ public final class ProxyActivity extends Activity {
         saveProfiles(new JSONArray(ordered), ordered.indexOf(active));
     }
 
+    void loadProfiles(ProfileStore source) throws java.security.GeneralSecurityException, java.io.IOException, org.json.JSONException {
+        ProfileStore.Snapshot saved = source.load();
+        store = source;
+        profiles = saved.rows;
+        selected = saved.selected;
+    }
+
+    boolean selectProfile(int index) {
+        return saveProfiles(profiles, index);
+    }
+
+    boolean removeProfile(int index) {
+        JSONArray remaining = new JSONArray();
+        for (int i = 0; i < profiles.length(); i++)
+            if (i != index) remaining.put(profiles.opt(i));
+        int next = selected > index || selected >= remaining.length() ? Math.max(0, selected - 1) : selected;
+        return saveProfiles(remaining, next);
+    }
+
     private boolean saveProfiles(JSONArray next, int nextSelected) {
         try {
             store.save(next, nextSelected);
@@ -408,14 +423,7 @@ public final class ProxyActivity extends Activity {
             .setTitle("Remove profile?")
             .setMessage(title)
             .setNegativeButton("Cancel", null)
-            .setPositiveButton("Remove",
-                (dialog, which) -> {
-                    JSONArray remaining = new JSONArray();
-                    for (int i = 0; i < profiles.length(); i++)
-                        if (i != index) remaining.put(profiles.opt(i));
-                    int next = selected > index || selected >= remaining.length() ? Math.max(0, selected - 1) : selected;
-                    saveProfiles(remaining, next);
-                })
+            .setPositiveButton("Remove", (dialog, which) -> removeProfile(index))
             .show();
     }
 

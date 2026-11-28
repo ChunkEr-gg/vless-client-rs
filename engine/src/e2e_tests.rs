@@ -722,15 +722,34 @@ async fn tun_mode_port53_dns_over_vless_tcp_and_xudp_e2e() {
                     tokio::time::sleep(Duration::from_millis(5)).await;
                 }
                 let mut answer = query;
-                answer[2] = 0x81;
+                answer[2] = if marker == 3 { 0x83 } else { 0x81 };
                 answer[3] = 0x80;
-                answer.extend_from_slice(&[93, 184, 216, marker]);
+                if marker != 3 {
+                    answer.extend_from_slice(&[93, 184, 216, marker]);
+                }
                 let _ = sock_reply.send_to(&answer, peer).await;
             });
         }
     });
 
-    // Spawn REALITY+VLESS server whose outbound selector redirects `198.51.100.53/32` to `dns_local_addr`
+    // The third query receives TC over UDP. Only a TCP connection through the
+    // server can retrieve the full answer from this private resolver.
+    let dns_tcp = TcpListener::bind(dns_local_addr).await.unwrap();
+    tasks.spawn(async move {
+        while let Ok((mut stream, _)) = dns_tcp.accept().await {
+            let len = stream.read_u16().await.unwrap();
+            let mut answer = vec![0; usize::from(len)];
+            stream.read_exact(&mut answer).await.unwrap();
+            assert_eq!(answer[12], 3);
+            answer[2] = 0x81;
+            answer[3] = 0x80;
+            answer.extend_from_slice(&[93, 184, 216, 3]);
+            stream.write_u16(answer.len() as u16).await.unwrap();
+            stream.write_all(&answer).await.unwrap();
+        }
+    });
+
+    // Spawn REALITY+VLESS server whose outbound selector redirects `10.20.0.53/32` to `dns_local_addr`
     let (priv_b64, pub_b64) = generate_keypair().unwrap();
     let private_key = decode_private_key(&priv_b64).unwrap();
     let short_id = [0x55; 8];
@@ -756,7 +775,7 @@ async fn tun_mode_port53_dns_over_vless_tcp_and_xudp_e2e() {
     tasks.spawn(async move {
         let resolver: Arc<dyn Resolver> = Arc::new(NativeResolver::new());
         let direct = Arc::new(build_direct_chain_group(resolver.clone()));
-        let dns_cidr: Vec<ipnetwork::IpNetwork> = vec!["198.51.100.53/32".parse().unwrap()];
+        let dns_cidr: Vec<ipnetwork::IpNetwork> = vec!["10.20.0.53/32".parse().unwrap()];
         let selector = Arc::new(ClientProxySelector::new(vec![
             ConnectRule::compiled(
                 Predicate::from_cidrs(&dns_cidr, true).unwrap(),
@@ -826,7 +845,7 @@ async fn tun_mode_port53_dns_over_vless_tcp_and_xudp_e2e() {
         .profile;
 
         let mut cfg = EngineConfig::new_tun(profile, tun_std.as_raw_fd(), false, framed, None);
-        cfg.dns_resolver = "198.51.100.53".parse().unwrap();
+        cfg.dns_resolver = "10.20.0.53".parse().unwrap();
 
         // Pin `vless.internal.invalid` -> `127.0.0.1` via ServerEndpointResolver!
         let (handle, state_rx) =
@@ -836,12 +855,12 @@ async fn tun_mode_port53_dns_over_vless_tcp_and_xudp_e2e() {
         assert_eq!(state_rx.borrow().status, EngineStatus::Connected);
 
         // 1. Fire TWO concurrent TUN UDP DNS queries from DIFFERENT source ports (`53001` ->
-        //    `198.18.0.2:53` and `53002` -> `198.51.100.53:53`) with the EXACT SAME client DNS ID
+        //    `198.18.0.2:53` and `53002` -> `10.20.0.53:53`) with the EXACT SAME client DNS ID
         //    `0xabcd` to verify concurrent wire ID rewriting over a single XUDP session!
         let app_src_1: SocketAddr = "198.18.0.1:53001".parse().unwrap();
         let app_src_2: SocketAddr = "198.18.0.1:53002".parse().unwrap();
         let stub_dns: SocketAddr = "198.18.0.2:53".parse().unwrap();
-        let configured_dns: SocketAddr = "198.51.100.53:53".parse().unwrap();
+        let configured_dns: SocketAddr = "10.20.0.53:53".parse().unwrap();
 
         let dns_query_1 = vec![
             0xab, 0xcd, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 1,
@@ -906,7 +925,7 @@ async fn tun_mode_port53_dns_over_vless_tcp_and_xudp_e2e() {
         }
 
         // 2. Drive a TUN TCP port-53 DNS query (`smoltcp` 3-way handshake + RFC 1035 2-byte length
-        //    frame) to `198.51.100.53:53` and verify it ALSO shares the exact same XUDP connection!
+        //    frame) to `10.20.0.53:53` and verify the truncated response is retried over VLESS TCP.
         let tcp_src: SocketAddr = "198.18.0.1:53100".parse().unwrap();
         let mut client_seq: u32 = 10_000;
         wire.send(&build_ipv4_tcp_packet(
@@ -1021,12 +1040,10 @@ async fn tun_mode_port53_dns_over_vless_tcp_and_xudp_e2e() {
         assert_eq!(&tcp_dns_resp[0..2], &[0x77, 0x88]);
         assert_eq!(&tcp_dns_resp[tcp_dns_resp.len() - 4..], &[93, 184, 216, 3]);
 
-        // ALL THREE DNS queries (2 UDP source ports + 1 TCP port-53 connection) MUST have shared
-        // a SINGLE VLESS+REALITY+XUDP connection!
         assert_eq!(
             vless_conn_count.load(Ordering::SeqCst),
-            1,
-            "multiple TUN UDP DNS source ports + TUN TCP port-53 must share ONE XUDP session"
+            2,
+            "one shared XUDP association and one TCP retry to the private resolver"
         );
 
         // 3. Send non-53 UDP packet through TUN -> XUDP -> udp_echo
@@ -1042,7 +1059,7 @@ async fn tun_mode_port53_dns_over_vless_tcp_and_xudp_e2e() {
         assert_eq!(u_src, udp_echo);
         assert_eq!(u_dst, app_udp_src);
         assert_eq!(u_payload, b"TUN-UDP:hello-tun");
-        assert_eq!(vless_conn_count.load(Ordering::SeqCst), 2);
+        assert_eq!(vless_conn_count.load(Ordering::SeqCst), 3);
 
         handle.stop().await.unwrap();
         drop(tun_std);

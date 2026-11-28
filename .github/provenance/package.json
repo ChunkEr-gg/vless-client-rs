@@ -1,0 +1,7 @@
+{
+  "name": "workflow-provenance",
+  "private": true,
+  "dependencies": {
+    "@actions/attest": "3.2.0"
+  }
+}

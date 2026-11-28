@@ -38,6 +38,9 @@ jobs:
     needs: version
     uses: ./.github/workflows/desktop-profiles.yml
   android-validation:
+    permissions:
+      contents: read
+      id-token: write
     needs: version
     uses: ./.github/workflows/android-client.yml
   ios-validation:
@@ -144,18 +147,27 @@ jobs:
     runs-on: ubuntu-24.04
     environment: release
     permissions:
-      attestations: write
       id-token: write
       contents: write
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: signed-*
           merge-multiple: true
           path: signed
-      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
-        with:
-          subject-path: signed/*
+      - run: npm ci --prefix .github/provenance --ignore-scripts
+      - name: Sign and verify release provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node .github/provenance/sign.mjs provenance.sigstore.json signed/*
+          for artifact in signed/*; do
+            gh attestation verify "$artifact" --bundle provenance.sigstore.json --repo "$GITHUB_REPOSITORY" \
+              --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA" --deny-self-hosted-runners \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"
+          done
+          mv provenance.sigstore.json signed/
       - name: Stage signed artifacts in a draft GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

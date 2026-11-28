@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: android-actions/setup-android@v3
         with:
-          packages: "platform-tools platforms;android-36 ndk;27.3.13750724"
+          packages: "emulator platform-tools platforms;android-36 ndk;27.3.13750724"
       - name: Build ARM64 engine
         run: |
           rustup target add aarch64-linux-android
@@ -31,13 +31,44 @@ jobs:
           name: vless-client-android-arm64
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+      - name: Verify release AAB packaging with the disposable runner key
+        working-directory: android
+        env:
+          ANDROID_STORE_PASSWORD: android
+          ANDROID_KEY_PASSWORD: android
+          ANDROID_KEY_ALIAS: validation
+        run: |
+          export ANDROID_KEYSTORE_FILE="$RUNNER_TEMP/validation.p12"
+          trap 'rm -f "$ANDROID_KEYSTORE_FILE"' EXIT
+          keytool -genkeypair -noprompt -alias "$ANDROID_KEY_ALIAS" -keystore "$ANDROID_KEYSTORE_FILE" \
+            -storetype PKCS12 -storepass:env ANDROID_STORE_PASSWORD -keyalg RSA -keysize 2048 \
+            -validity 30 -dname "CN=CI validation"
+          ./gradlew :app:bundleRelease
+          jarsigner -verify -strict -keystore "$ANDROID_KEYSTORE_FILE" -storepass:env ANDROID_STORE_PASSWORD \
+            app/build/outputs/bundle/release/app-release.aab "$ANDROID_KEY_ALIAS"
+          keytool -exportcert -rfc -alias "$ANDROID_KEY_ALIAS" -keystore "$ANDROID_KEYSTORE_FILE" \
+            -storepass:env ANDROID_STORE_PASSWORD -file app/build/outputs/bundle/release/validation.pem
+      - uses: actions/upload-artifact@v4
+        with:
+          name: validation-android-aab
+          path: |
+            android/app/build/outputs/bundle/release/app-release.aab
+            android/app/build/outputs/bundle/release/validation.pem
+          if-no-files-found: error
+      - name: Build native x86_64 engine for device tests
+        run: |
+          rustup target add x86_64-linux-android
+          ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.3.13750724" ./android/build-engine.sh x86_64
       - name: Allow the runner to use KVM
-        run: sudo chmod 0666 /dev/kvm
+        run: |
+          sudo chmod 0666 /dev/kvm
+          "$ANDROID_HOME/emulator/emulator" -accel-check
       - name: Verify profile migration, VPN cancellation and DNS on Android
         uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2
         with:
           api-level: 35
           arch: x86_64
+          disable-linux-hw-accel: false
           target: google_apis
           script: cd android && ./gradlew :app:connectedDebugAndroidTest
       - name: Upload Android device test results
@@ -46,4 +77,50 @@ jobs:
         with:
           name: android-device-test-results
           path: android/app/build/outputs/androidTest-results/connected/debug/**/*.xml
+          if-no-files-found: error
+      - name: Clear the already uploaded API 35 reports
+        run: rm -rf android/app/build/outputs/androidTest-results/connected/debug
+      - name: Verify active VPN destruction on the minimum supported Android API
+        id: api26
+        uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2
+        with:
+          api-level: 26
+          arch: x86_64
+          avd-name: vpn-api26
+          disable-linux-hw-accel: false
+          target: google_apis
+          script: cd android && ./gradlew :app:connectedDebugAndroidTest --rerun-tasks -Pandroid.testInstrumentationRunnerArguments.class=io.vless.client.TunnelServiceTest#onDestroyCancelsActiveEngineAndReleasesTunBeforeRestart
+      - name: Upload Android 8 VPN teardown result
+        if: ${{ !cancelled() && (steps.api26.outcome == 'success' || steps.api26.outcome == 'failure') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-api26-vpn-result
+          path: android/app/build/outputs/androidTest-results/connected/debug/**/*.xml
+          if-no-files-found: error
+
+  provenance:
+    needs: android
+    if: (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: validation-android-aab
+      - run: npm ci --prefix .github/provenance --ignore-scripts
+      - name: Sign and verify AAB provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node .github/provenance/sign.mjs provenance.sigstore.json app-release.aab validation.pem
+          gh attestation verify app-release.aab --bundle provenance.sigstore.json --repo "$GITHUB_REPOSITORY" \
+            --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA" --deny-self-hosted-runners \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/android-client.yml"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: validation-android-provenance
+          path: provenance.sigstore.json
           if-no-files-found: error

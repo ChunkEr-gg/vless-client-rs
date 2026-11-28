@@ -988,7 +988,10 @@ fn import_profiles() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(target_os = "android")]
-async fn run_android_vpn(socket_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_android_vpn(
+    socket_name: &str,
+    resolver: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     use std::os::android::net::SocketAddrExt;
     use std::os::fd::AsRawFd;
     use std::os::unix::net::{SocketAddr, UnixListener};
@@ -1001,7 +1004,16 @@ async fn run_android_vpn(socket_name: &str) -> Result<(), Box<dyn std::error::Er
     let (_, descriptor) = vless_ipc::recv_frame_with_fd::<()>(&service)?;
     let descriptor = descriptor.ok_or("missing Android VPN descriptor")?;
     let fd = descriptor.as_raw_fd().to_string();
-    let CliAction::Run(args) = parse_cli_args(["run", "--link", "-", "--tun-fd", &fd])? else {
+    let CliAction::Run(args) = parse_cli_args([
+        "run",
+        "--link",
+        "-",
+        "--tun-fd",
+        &fd,
+        "--dns-resolver",
+        resolver,
+    ])?
+    else {
         return Err("invalid VPN engine arguments".into());
     };
     // The standalone TUN entry point owns the descriptor until process exit.
@@ -1019,10 +1031,10 @@ async fn run_android_vpn(socket_name: &str) -> Result<(), Box<dyn std::error::Er
 #[tokio::main]
 async fn main() {
     #[cfg(target_os = "android")]
-    if let [mode, socket] = std::env::args().skip(1).collect::<Vec<_>>().as_slice()
+    if let [mode, socket, resolver] = std::env::args().skip(1).collect::<Vec<_>>().as_slice()
         && mode == "android-vpn"
     {
-        if let Err(err) = run_android_vpn(socket).await {
+        if let Err(err) = run_android_vpn(socket, resolver).await {
             eprintln!("VPN startup failed: {err}");
             std::process::exit(2);
         }

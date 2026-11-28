@@ -26,6 +26,15 @@ public final class TunnelService extends VpnService {
     private Session active; // Main-thread owned, including every UI state transition.
     private int latestStartId;
 
+    // Instrumentation observes the instance attached by Android without extending its lifetime.
+    static volatile java.lang.ref.WeakReference<TunnelService> liveInstance = new java.lang.ref.WeakReference<>(null);
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        liveInstance = new java.lang.ref.WeakReference<>(this);
+    }
+
     static final class Session {
         volatile boolean cancelled;
         private Process child;
@@ -110,7 +119,8 @@ public final class TunnelService extends VpnService {
                                   .addRoute("::", 0);
             android.content.SharedPreferences prefs = getSharedPreferences("routing", MODE_PRIVATE);
             String dns = prefs.getString("dns", "");
-            builder.addDnsServer(dnsAddress(dns.isEmpty() ? DEFAULT_DNS : dns));
+            java.net.InetAddress resolver = dnsAddress(dns.isEmpty() ? DEFAULT_DNS : dns);
+            builder.addDnsServer(resolver);
             boolean inclusive = prefs.getBoolean("inclusive", false);
             if (!inclusive)
                 builder.addDisallowedApplication(getPackageName());
@@ -133,7 +143,7 @@ public final class TunnelService extends VpnService {
                     throw new IOException("VPN permission was revoked");
                 String socket = "vless-" + UUID.randomUUID();
                 File binary = new File(getApplicationInfo().nativeLibraryDir, "libvless_engine.so");
-                process = session.start(new ProcessBuilder(binary.getPath(), "android-vpn", socket)
+                process = session.start(new ProcessBuilder(binary.getPath(), "android-vpn", socket, resolver.getHostAddress())
                                             .redirectErrorStream(true));
                 try (LocalSocket control = connect(socket, process, session)) {
                     if (control.getPeerCredentials().getUid() != android.os.Process.myUid())
@@ -206,6 +216,7 @@ public final class TunnelService extends VpnService {
 
     @Override
     public void onDestroy() {
+        if (liveInstance.get() == this) liveInstance.clear();
         if (active != null) {
             active.cancel();
             active = null;
