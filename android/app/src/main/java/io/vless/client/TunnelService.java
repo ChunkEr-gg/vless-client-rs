@@ -26,6 +26,15 @@ public final class TunnelService extends VpnService {
     private Session active; // Main-thread owned, including every UI state transition.
     private int latestStartId;
 
+    // Instrumentation observes the instance attached by Android without extending its lifetime.
+    static volatile java.lang.ref.WeakReference<TunnelService> liveInstance = new java.lang.ref.WeakReference<>(null);
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        liveInstance = new java.lang.ref.WeakReference<>(this);
+    }
+
     static final class Session {
         volatile boolean cancelled;
         private Process child;
@@ -207,6 +216,7 @@ public final class TunnelService extends VpnService {
 
     @Override
     public void onDestroy() {
+        if (liveInstance.get() == this) liveInstance.clear();
         if (active != null) {
             active.cancel();
             active = null;

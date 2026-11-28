@@ -86,7 +86,7 @@ public class TunnelServiceTest {
                 if (destroyWhileActive && connection == 0) {
                     // The OS binds a live VPN, so stopService alone cannot drive this callback.
                     // Deliver it on the main thread while the framework-created service owns the TUN.
-                    TunnelService live = DebugComponentFactory.vpn.get();
+                    TunnelService live = TunnelService.liveInstance.get();
                     assertNotNull(live);
                     inst.runOnMainSync(live::onDestroy);
                     awaitVpn("Off", false);
