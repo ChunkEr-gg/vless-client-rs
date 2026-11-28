@@ -39,6 +39,19 @@ public class TunnelServiceTest {
         fail("Expected " + state + ", actual " + TunnelService.state + ", interfaces " + addresses);
     }
 
+    private boolean engineRunning() throws IOException {
+        return shell("ps -A -w -o ARGS").contains("libvless_engine.so android-vpn ");
+    }
+
+    private void awaitEngineExit() throws Exception {
+        long until = SystemClock.elapsedRealtime() + 10000;
+        do {
+            if (!engineRunning()) return;
+            SystemClock.sleep(100);
+        } while (SystemClock.elapsedRealtime() < until);
+        fail("Native engine remained alive after active onDestroy");
+    }
+
     private void awaitServiceDestroyed(Context context) throws Exception {
         android.app.ActivityManager manager = context.getSystemService(android.app.ActivityManager.class);
         long until = SystemClock.elapsedRealtime() + 10000;
@@ -46,7 +59,7 @@ public class TunnelServiceTest {
             // Android exposes this app's own services to the instrumentation UID.
             boolean running = manager.getRunningServices(Integer.MAX_VALUE).stream()
                 .anyMatch(info -> TunnelService.class.getName().equals(info.service.getClassName()));
-            if (!running && !shell("ps -A -w -o ARGS").contains("libvless_engine.so android-vpn "))
+            if (!running && !engineRunning())
                 return;
             SystemClock.sleep(100);
         } while (SystemClock.elapsedRealtime() < until);
@@ -90,8 +103,9 @@ public class TunnelServiceTest {
                     assertNotNull(live);
                     inst.runOnMainSync(live::onDestroy);
                     awaitVpn("Off", false);
-                    assertFalse("engine survived active onDestroy",
-                                shell("ps -A -w -o ARGS").contains("libvless_engine.so android-vpn "));
+                    // SIGKILL delivery and removal from the process table are asynchronous.
+                    // Require exit before any further service stop could assist cleanup.
+                    awaitEngineExit();
                     context.stopService(service);
                 } else {
                     assertNotNull(context.startService(new Intent(context, TunnelService.class).setAction("stop")));
