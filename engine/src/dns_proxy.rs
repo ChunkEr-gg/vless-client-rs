@@ -226,7 +226,7 @@ impl DnsForwarder {
     }
 
     /// Creates a TCP stream speaking RFC 1035 §4.2.2 2-byte big-endian length-prefixed DNS frames,
-    /// forwarding each query payload through the shared XUDP association.
+    /// Large queries and truncated replies use the upstream TCP stream.
     pub fn tcp_stream(&self) -> Box<dyn AsyncStream> {
         let (local, mut peer) = tokio::io::duplex(65536);
         let dialer = self.dialer.clone();
@@ -1018,6 +1018,48 @@ mod tests {
         pkt[5] = 0x01;
         pkt[12] = marker;
         pkt
+    }
+
+    #[tokio::test]
+    async fn maximum_length_dns_query_reaches_tcp_resolver_intact() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let target = NetLocation::from_ip_addr(addr.ip(), addr.port());
+        let resolver: Arc<dyn Resolver> = Arc::new(crate::resolver::NativeResolver::new());
+        let chain = crate::tcp::chain_builder::build_direct_chain_group(resolver.clone());
+        let dialer = ChainXudpDialer {
+            resolver,
+            vless_chain: Arc::new(chain),
+            upstream_dns: target.clone(),
+        };
+        let forwarder = DnsForwarder::with_dialer(Arc::new(dialer), addr.ip(), target);
+        let mut local = forwarder.tcp_stream();
+        let mut query = make_dns_packet(0x1234, 0xab);
+        query.extend((query.len()..usize::from(u16::MAX)).map(|i| (i % 251) as u8));
+        let mut reply = make_dns_packet(0x1234, 0xcd);
+        reply[2] |= 0x80;
+        let upstream = async {
+            let (mut tcp, _) = listener.accept().await.unwrap();
+            assert_eq!(tcp.read_u16().await.unwrap(), u16::MAX);
+            let mut received = vec![0; query.len()];
+            tcp.read_exact(&mut received).await.unwrap();
+            assert_eq!(received, query);
+            tcp.write_u16(reply.len() as u16).await.unwrap();
+            tcp.write_all(&reply).await.unwrap();
+        };
+        let client = async {
+            local.write_u16(u16::MAX).await.unwrap();
+            local.write_all(&query).await.unwrap();
+            assert_eq!(usize::from(local.read_u16().await.unwrap()), reply.len());
+            let mut received = vec![0; reply.len()];
+            local.read_exact(&mut received).await.unwrap();
+            assert_eq!(received, reply);
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            tokio::join!(upstream, client);
+        })
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
